@@ -640,7 +640,7 @@ function pBoard() {
         <div class="big px g-sky">${int(p.xp)}</div><div class="big px g-money">${money(p.sp)}</div><div class="big px g-score">${money(p.rev)}</div>
         <div class="big px ${roasCls(p.r[S.model])}">${x2(p.r[S.model])}</div>
         <div class="thumbs-row">${p.concepts.slice(0, 4).map(c => `<img src="${esc(c.thumb || '')}" title="${esc((c.id || '') + ' ' + c.title)}" data-c="${esc(c.key)}" style="cursor:pointer">`).join('')}</div></div>`; }).join('')}
-  </div><div>
+  </div><div class="hud-below">
     <div class="side-panel wood"><h3 class="vk">Team goals</h3>${goals.map(([t, v, goal, isMoney]) => `<div class="goal ${v >= goal ? 'done' : ''}"><div class="q"><span>${v >= goal ? '✓ ' : ''}${t}</span><b>${isMoney ? money(v) : int(v)} / ${isMoney ? money(goal) : goal}</b></div><div class="xpbar2" style="max-width:none;margin-top:5px"><i style="width:${Math.min(100, v / goal * 100).toFixed(0)}%"></i></div></div>`).join('')}</div>
     <div class="side-panel wood"><h3 class="vk">Highlights</h3><ul class="hl-list">${hl.length ? hl.map(t => `<li>${t}</li>`).join('') : '<li>Nothing yet in these dates.</li>'}</ul></div>
   </div></div>
