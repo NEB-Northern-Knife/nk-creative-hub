@@ -20,7 +20,13 @@
   <div class="lock-card">
     <img src="img/logo-white.png" alt="NorthernKnife" style="width:200px">
     <div class="sub">Creative Hub · Performance &amp; Growth</div>
-    <div id="lockErr" style="color:var(--muted)">Loading the latest numbers...</div>
+    <form id="loginForm" class="hidden" autocomplete="on">
+      <input type="text" name="username" value="nk-creative-hub" autocomplete="username" hidden>
+      <input type="password" id="pwIn" placeholder="Team password" autocomplete="current-password">
+      <label><input type="checkbox" id="pwKeep" checked> Keep me signed in on this device</label>
+      <button class="btn" id="loginBtn" type="submit" style="width:100%">Enter the hub</button>
+    </form>
+    <div id="lockErr" style="color:var(--muted);margin-top:12px;min-height:18px">Loading...</div>
   </div>
 </div>
 
@@ -42,6 +48,7 @@
       <div><span class="dot"></span>Live from Triple Whale</div>
       <div id="genAt" style="margin-top:4px"></div>
       <div style="margin-top:8px"><button class="btn ghost sm" id="shareBtn">Copy link to this view</button></div>
+      <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="pill" id="roleTag"></span><button class="btn ghost sm" id="logoutBtn">Log out</button></div>
     </div>
   </aside>
   <main>
