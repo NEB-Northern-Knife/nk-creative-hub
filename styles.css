@@ -396,3 +396,68 @@ td .bar{display:inline-block;height:6px;border-radius:3px;background:var(--gold2
 }
 .hud .g-money{color:#5fe08a!important}.hud .g-red{color:#ff6b5e!important}
 .portrait span,.roster2 .mini{font-family:'Bebas Neue',sans-serif!important;letter-spacing:.04em}
+/* ---------- date range picker ---------- */
+.dp-btn{display:inline-flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line2);color:var(--text);border-radius:9px;padding:7px 12px;font-family:inherit;font-size:13px;cursor:pointer}
+.dp-btn:hover{border-color:var(--gold2)}
+.dp-btn svg{width:16px;height:16px;stroke:var(--gold);fill:none;stroke-width:1.8}
+#dp{position:fixed;z-index:60;display:none;background:#16171a;border:1px solid var(--line2);border-radius:14px;box-shadow:0 24px 60px #000c;overflow:hidden}
+#dp.open{display:flex}
+.dp-pre{display:flex;flex-direction:column;gap:2px;padding:12px;border-right:1px solid var(--line);min-width:150px}
+.dp-pre button{background:none;border:0;color:var(--text2);text-align:left;padding:8px 10px;border-radius:8px;font-family:inherit;font-size:13px;cursor:pointer}
+.dp-pre button:hover{background:var(--panel2);color:var(--text)}
+.dp-pre button.on{background:#c7b48b22;color:var(--gold)}
+.dp-main{padding:14px 16px 12px}
+.dp-months{display:flex;gap:22px}
+.dp-m h5{margin:0 0 8px;text-align:center;font-size:13px;font-weight:600}
+.dp-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:-26px;position:relative;z-index:1}
+.dp-nav button{background:var(--panel2);border:1px solid var(--line2);color:var(--text);width:28px;height:28px;border-radius:8px;cursor:pointer}
+.dp-nav button:disabled{opacity:.3;cursor:default}
+.dp-g{display:grid;grid-template-columns:repeat(7,34px);gap:2px 0}
+.dp-g .wd{font-size:10.5px;color:var(--muted);text-align:center;padding:4px 0;text-transform:uppercase}
+.dp-g .d{height:34px;display:grid;place-items:center;font-size:12.5px;cursor:pointer;color:var(--text);border-radius:0;position:relative}
+.dp-g .d:hover{background:#ffffff14;border-radius:8px}
+.dp-g .d.out{visibility:hidden}
+.dp-g .d.dis{color:#4a4b52;cursor:default}
+.dp-g .d.dis:hover{background:none}
+.dp-g .d.in{background:#c7b48b26}
+.dp-g .d.s,.dp-g .d.e{background:var(--gold);color:#16130b;font-weight:600;border-radius:8px}
+.dp-g .d.today:after{content:'';position:absolute;bottom:5px;width:4px;height:4px;border-radius:50%;background:var(--red)}
+.dp-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line);font-size:12.5px;color:var(--text2)}
+@media (max-width:700px){#dp{left:8px!important;right:8px;flex-direction:column}.dp-pre{flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--line)}.dp-months .dp-m:nth-child(2){display:none}}
+/* champions: tall vertical cards */
+.champs{grid-template-columns:repeat(5,minmax(0,1fr));gap:14px}
+.champ{padding:0;overflow:hidden;cursor:pointer;display:flex;flex-direction:column;transition:transform .15s,border-color .15s}
+.champ:hover{transform:translateY(-3px);border-color:var(--gold3)}
+.ch-thumb{position:relative;aspect-ratio:4/5;background:var(--panel2) center/cover no-repeat}
+.ch-thumb .play{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:56px;height:56px;border-radius:50%;background:#000a;border:2px solid #fff8;display:grid;place-items:center}
+.ch-thumb .play:after{content:'';border-left:16px solid #fff;border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px}
+.ch-tag{position:absolute;top:10px;left:10px;background:#000c;backdrop-filter:blur(4px);color:var(--gold);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:999px;font-weight:600}
+.ch-shield{position:relative;aspect-ratio:4/5;display:grid;place-items:center;background:radial-gradient(400px 300px at 50% 30%,#2a1614,#141416 70%)}
+.ch-av{width:58%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;font-family:'Bebas Neue',sans-serif;font-size:56px;color:#fff;text-shadow:0 2px 4px #000;border:6px solid #6b7079;box-shadow:0 0 0 2px #000,0 10px 24px #000a;
+  background:radial-gradient(circle,#000000a0 0 38%,transparent 39%),conic-gradient(#8e1c16 0 25%,#d8cdb5 0 50%,#8e1c16 0 75%,#d8cdb5 0)}
+.ch-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:4px;flex:1}
+.ch-id{font-size:11px;color:var(--gold2);letter-spacing:.06em}
+.ch-name{font-weight:600;font-size:15px;line-height:1.25;min-height:2.5em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.ch-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+.ch-stats div{background:var(--panel2);border-radius:8px;padding:6px 4px;text-align:center}
+.ch-stats span{display:block;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.ch-stats b{font-size:14px;font-weight:600}
+.ch-who{font-size:11.5px;color:var(--muted);margin-top:4px}
+@media (max-width:1200px){.champs{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:700px){.champs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* insights panels */
+.ins-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:14px;margin-top:16px}
+.ins{padding:14px 16px}
+.ins-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.ins-h h3{margin:0;font-family:var(--display);font-weight:400;letter-spacing:.05em;font-size:22px}
+.ins-h span{font-size:11.5px}
+.ins-row{display:grid;grid-template-columns:150px 1fr 54px 96px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.ins-l{min-width:0}.ins-l b{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ins-l span{font-size:11px;color:var(--muted)}
+.ins-bar{position:relative;height:26px;background:var(--panel2);border-radius:6px;overflow:hidden}
+.ins-bar i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#8c6f3f,#c7b48b);border-radius:6px;opacity:.85}
+.ins-bar em{position:relative;font-style:normal;font-size:12px;font-weight:600;line-height:26px;padding-left:8px;color:#fff;text-shadow:0 1px 2px #000}
+.ins-r{font-weight:600;font-size:15px;text-align:right}
+.ins-t{display:flex;gap:3px;justify-content:flex-end}
+.ins-t img{width:30px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;background:var(--panel2)}
+@media (max-width:700px){.ins-grid{grid-template-columns:1fr}.ins-row{grid-template-columns:110px 1fr 46px}.ins-t{display:none}}
