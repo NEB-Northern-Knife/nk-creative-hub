@@ -127,6 +127,12 @@ function adSums(a, b, mkt = S.market) {
     const f = k(ad.s);
     o.sp += r[2] * f; o.pr += r[3] * f; o.fc += r[4] * f; o.ta += r[5] * f; o.fco += r[6]; o.im += r[7]; o.cl += r[8]; o.atc += r[9]; o.usd += r[2] * fx(ad.s);
   }
+  for (const r of D.vrows || []) {
+    if (r[1] < i0 || r[1] > i1) continue;
+    const o = m.get(r[0]); if (!o) continue;
+    const v = o.v || (o.v = {im:0, v3:0, tp:0, p25:0, p50:0, p75:0, p100:0, oc:0, cl:0});
+    v.im += r[2]; v.v3 += r[3]; v.tp += r[4]; v.p25 += r[5]; v.p50 += r[6]; v.p75 += r[7]; v.p100 += r[8]; v.oc += r[9]; v.cl += r[10];
+  }
   const out = [...m.values()]; memo.set(key, out); return out;
 }
 const revOf = (o, m = S.model) => m === 'fc' ? o.fc : m === 'ta' ? o.ta : o.pr;
@@ -142,15 +148,23 @@ function concepts(a, b, mkt = S.market) {
     if (!c) { c = {key:id, kind:ad.kind, id:ad.concept_id, title:ad.title, sp:0, pr:0, fc:0, ta:0, fco:0, im:0, cl:0, atc:0, usd:0, markets:new Set(), ads:[], _top:-1}; map.set(id, c); }
     c.sp += x.sp; c.pr += x.pr; c.fc += x.fc; c.ta += x.ta; c.fco += x.fco; c.im += x.im; c.cl += x.cl; c.atc += x.atc; c.usd += x.usd;
     c.markets.add(ad.s); c.ads.push(x);
+    if (x.v) { const v = c.v || (c.v = {im:0, v3:0, tp:0, p25:0, p50:0, p75:0, p100:0, oc:0, cl:0}); for (const kk in x.v) v[kk] += x.v[kk]; }
     for (const f of ['product','editor','designer','strategist','format','angle','funnel','structure','creator','hook_tactic']) if (!c[f] && ad[f]) c[f] = ad[f];
     if (ad.launched && (!c.launched || ad.launched < c.launched)) c.launched = ad.launched;
-    if (x.sp > c._top) { c._top = x.sp; if (ad.th) c.thumb = ad.th; if (ad.v) { c.video = ad.v; c.dur = ad.dur; } if (ad.hook != null) { c.hook = ad.hook; c.hold = ad.hold; } }
+    if (x.sp > c._top) { c._top = x.sp; if (ad.th) c.thumb = ad.th; if (ad.v) { c.video = ad.v; c.dur = ad.dur; } if (ad.hook != null && c.hook === undefined) { c._hook7 = ad.hook; c._hold7 = ad.hold; } }
     if (!c.thumb && ad.th) c.thumb = ad.th; if (!c.video && ad.v) { c.video = ad.v; c.dur = ad.dur; }
   }
   const out = [...map.values()];
   for (const c of out) {
     c.r = {fc: c.sp ? c.fc / c.sp : 0, ta: c.sp ? c.ta / c.sp : 0, pl: c.sp ? c.pr / c.sp : 0};
-    c.ctr = c.im ? c.cl / c.im : 0;
+    const v = c.v;
+    c.ctr = v && v.im ? v.cl / v.im : (c.im ? c.cl / c.im : 0);
+    c.lctr = v && v.im ? v.oc / v.im : null;
+    c.cpm = v && v.im ? c.sp / v.im * 1000 : (c.im ? c.sp / c.im * 1000 : null);
+    c.cpc = v && v.oc ? c.sp / v.oc : null;
+    c.cpa = c.fco ? c.sp / c.fco : null;
+    if (c.kind === 'VID' && v && v.im && v.v3) { c.hook = v.v3 / v.im; c.hold = v.tp / v.v3; c.done = v.p100 / v.im; }
+    else if (c.kind === 'VID' && v && v.im) { c.hook = null; c.hold = null; }
     const ratio = c.r.pl > 0 ? c.r.fc / c.r.pl : 0;
     c.role = ratio >= 0.9 ? 'acq' : ratio <= 0.5 ? 'close' : 'bal';
   }
@@ -287,16 +301,16 @@ function dpMonth(m) {
 }
 function dpDraw() {
   const el = $('#dp'), right = addM(DP.view, 1);
-  const txt = DP.a ? (DP.b ? `${fmtD(DP.a <= DP.b ? DP.a : DP.b)} – ${fmtD(DP.a <= DP.b ? DP.b : DP.a)} · ${nDays(DP.a <= DP.b ? DP.a : DP.b, DP.a <= DP.b ? DP.b : DP.a)} days` : `${fmtD(DP.a)} – pick an end date`) : 'Pick a start date';
+  const txt = '';
   el.innerHTML = `<div class="dp-pre">${PRESETS.map(([v, l]) => `<button data-p="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="dp-main"><div class="dp-nav"><button id="dpPrev" ${DP.view <= ym(MIN_DAY) ? 'disabled' : ''}>‹</button><button id="dpNext" ${right >= ym(D.today) ? 'disabled' : ''}>›</button></div>
     <div class="dp-months">${dpMonth(DP.view)}${dpMonth(right)}</div>
-    <div class="dp-foot"><span>${txt}</span><span><button class="btn ghost sm" id="dpCancel">Cancel</button> <button class="btn sm" id="dpApply" ${DP.a && DP.b ? '' : 'disabled style="opacity:.5"'}>Apply</button></span></div></div>`;
+    <div class="dp-foot"><span id="dpTxt">${txt}</span><span><button class="btn ghost sm" id="dpCancel">Cancel</button> <button class="btn sm" id="dpApply">Apply</button></span></div></div>`;
   el.querySelectorAll('[data-p]').forEach(bt => bt.onclick = () => { S.preset = bt.dataset.p; applyPreset(); dpClose(); render(); });
   el.querySelectorAll('.d[data-d]').forEach(c => {
     if (!c.dataset.d) return;
-    c.onclick = () => { const d = c.dataset.d; if (!DP.a || DP.b) { DP.a = d; DP.b = null; } else { DP.b = d; } dpDraw(); };
-    c.onmouseenter = () => { if (DP.a && !DP.b) { DP.hover = c.dataset.d; dpDraw(); } };
+    c.addEventListener('mousedown', e => { e.preventDefault(); const d = c.dataset.d; if (!DP.a || DP.b) { DP.a = d; DP.b = null; DP.hover = null; } else { DP.b = d; } dpPaint(); });
+    c.addEventListener('mouseenter', () => { if (DP.a && !DP.b) { DP.hover = c.dataset.d; dpPaint(); } });
   });
   $('#dpPrev').onclick = () => { DP.view = addM(DP.view, -1); dpDraw(); };
   $('#dpNext').onclick = () => { DP.view = addM(DP.view, 1); dpDraw(); };
@@ -304,6 +318,17 @@ function dpDraw() {
   $('#dpApply').onclick = () => { if (!DP.a || !DP.b) return; let [x, y] = DP.a <= DP.b ? [DP.a, DP.b] : [DP.b, DP.a];
     const match = PRESETS.find(([v]) => { const [p0, p1] = presetRange(v); return p0 === x && p1 === y; });
     S.preset = match ? match[0] : 'custom'; S.from = x; S.to = y; dpClose(); render(); };
+  dpPaint();
+}
+function dpPaint() {
+  const el = $('#dp'); if (!el) return;
+  const lo = DP.a, hi = DP.b || DP.hover || null;
+  const [r0, r1] = lo && hi ? (lo <= hi ? [lo, hi] : [hi, lo]) : [lo, lo];
+  el.querySelectorAll('.d[data-d]').forEach(c => { const d = c.dataset.d; if (!d) return;
+    c.classList.toggle('s', d === r0); c.classList.toggle('e', d === r1); c.classList.toggle('in', !!(r0 && r1 && d > r0 && d < r1)); });
+  const [x, y] = DP.a && DP.b ? (DP.a <= DP.b ? [DP.a, DP.b] : [DP.b, DP.a]) : [DP.a, null];
+  $('#dpTxt').textContent = !DP.a ? 'Pick a start date' : !DP.b ? `${fmtD(DP.a)} – now pick an end date` : `${fmtD(x)} – ${fmtD(y)} · ${nDays(x, y)} days`;
+  const ap = $('#dpApply'); ap.style.opacity = DP.a && DP.b ? 1 : .5;
 }
 function dpOpen(btn) {
   let el = $('#dp'); if (!el) { el = document.createElement('div'); el.id = 'dp'; document.body.appendChild(el); }
@@ -365,7 +390,8 @@ function card(c, rank) {
       <div class="who">${who.filter(Boolean).map(esc).join(' · ') || '<span class="muted">no names in ad name</span>'}</div>
       ${roas3(c.r)}
       <div class="stats"><span>Spend <b>${money(c.sp)}</b></span><span>${MODELS[S.model]} rev <b>${money(revOf(c))}</b></span></div>
-      <div class="stats"><span>${c.kind === 'VID' && c.hook != null ? `Hook <b>${pct(c.hook, 0)}</b> · Hold <b>${pct(c.hold, 0)}</b>` : `CTR <b>${pct(c.ctr)}</b>`}</span><span class="mkts">${[...c.markets].map(m => FLAGS[m]).join('')}</span></div>
+      <div class="vm">${c.kind === 'VID' ? `<div><span>Hook</span><b>${pct(c.hook, 0)}</b></div><div><span>Hold</span><b>${pct(c.hold, 0)}</b></div>` : `<div><span>CPM</span><b>${c.cpm != null ? money(c.cpm, 0) : '–'}</b></div><div><span>CTR</span><b>${pct(c.ctr)}</b></div>`}<div><span>Link CTR</span><b>${pct(c.lctr)}</b></div></div>
+      <div class="stats"><span>${c.cpa ? 'FC CPA <b>' + money(c.cpa, 0) + '</b>' : ''}</span><span class="mkts">${[...c.markets].map(m => FLAGS[m]).join('')}</span></div>
     </div></div>`;
 }
 
@@ -381,6 +407,7 @@ function pHQ() {
   const adCard = (c, t) => !c ? '' : `<div class="card champ" data-c="${esc(c.key)}"><div class="ch-thumb" style="background-image:url('${esc(c.thumb || '')}')">${c.kind === 'VID' && c.video ? '<div class="play"></div>' : ''}<span class="ch-tag">${t}</span></div>
     <div class="ch-body"><div class="ch-id">${esc(c.id || '')}${c.product ? ' · ' + esc(c.product) : ''}</div><div class="ch-name">${esc(c.title)}</div>
     <div class="ch-stats"><div><span>Spend</span><b>${money(c.sp)}</b></div><div><span>ROAS</span><b class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</b></div><div><span>Revenue</span><b>${money(revOf(c))}</b></div></div>
+    <div class="ch-who">${c.kind === 'VID' ? `Hook ${pct(c.hook, 0)} · Hold ${pct(c.hold, 0)} · ` : ''}Link CTR ${pct(c.lctr)}</div>
     <div class="ch-who">${esc([c.editor || c.designer, c.strategist].filter(Boolean).join(' · '))}</div></div></div>`;
   const pCard = (p, t, bt) => !p ? '' : `<div class="card champ" data-go="board" data-b="${bt}"><div class="ch-shield"><div class="ch-av">${esc(initials(p.name))}</div><span class="ch-tag">${t}</span></div>
     <div class="ch-body"><div class="ch-id">${int(p.xp)} XP</div><div class="ch-name">${esc(p.name)}</div>
@@ -461,7 +488,7 @@ function pCreatives(kind) {
   const people = [...new Set(all.map(c => isV ? c.editor : c.designer).filter(Boolean))].sort();
   h += `<div class="toolbar">
     <select id="fMkt"><option value="ALL">🌍 All countries combined</option>${D.stores.map(s => `<option value="${s.code}" ${S.market === s.code ? 'selected' : ''}>${FLAGS[s.code]} ${s.name}</option>`).join('')}</select>
-    <select id="fSort"><option value="sp">Sort: spend</option><option value="roas">Sort: ${MODELS[S.model]} ROAS</option><option value="rev">Sort: ${MODELS[S.model]} revenue</option>${isV ? '<option value="hook">Sort: hook rate</option>' : '<option value="ctr">Sort: CTR</option>'}<option value="new">Sort: newest launch</option></select>
+    <select id="fSort"><option value="sp">Sort: spend</option><option value="roas">Sort: ${MODELS[S.model]} ROAS</option><option value="rev">Sort: ${MODELS[S.model]} revenue</option>${isV ? '<option value="hook">Sort: hook rate</option><option value="hold">Sort: hold rate</option>' : ''}<option value="lctr">Sort: link CTR</option><option value="ctr">Sort: CTR</option><option value="cpm">Sort: lowest CPM</option><option value="new">Sort: newest launch</option></select>
     <select id="fProd"><option value="">All products</option>${products.map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <select id="fWho"><option value="">All ${isV ? 'editors' : 'designers'}</option>${people.map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <input type="search" id="fQ" placeholder="Search name, ID, angle..."></div><div id="crList"></div>`;
@@ -480,7 +507,7 @@ function pCreatives(kind) {
       const sort = $('#fSort').value, prod = $('#fProd').value, who = $('#fWho').value, q = $('#fQ').value.toLowerCase();
       let cs = all.filter(c => c.sp >= mk && (!prod || c.product === prod) && (!who || (isV ? c.editor : c.designer) === who));
       if (q) cs = cs.filter(c => (c.key + ' ' + c.title + ' ' + (c.angle || '') + ' ' + (c.format || '') + ' ' + c.ads.map(x => x.ad.n).join(' ')).toLowerCase().includes(q));
-      const f = {roas:c => c.r[S.model], rev:c => revOf(c), sp:c => c.sp, ctr:c => c.ctr, hook:c => c.hook || 0, new:c => c.launched || ''}[sort];
+      const f = {roas:c => c.r[S.model], rev:c => revOf(c), sp:c => c.sp, ctr:c => c.ctr || 0, lctr:c => c.lctr || 0, hook:c => c.hook || 0, hold:c => c.hold || 0, cpm:c => c.cpm ? -c.cpm : -1e9, new:c => c.launched || ''}[sort];
       cs.sort((x, y) => f(y) > f(x) ? 1 : f(y) < f(x) ? -1 : 0);
       $('#crList').innerHTML = cs.length ? `<div class="grid gallery">${cs.slice(0, 60).map((c, i) => card(c, i + 1)).join('')}</div><div class="note">${cs.length} concepts over $${S.min} spend, ${S.market === 'ALL' ? 'every country combined' : S.market + ' only'}. ${isV ? 'Hover a card to preview, click to watch with sound. ' : ''}Green = ROAS at or above ${S.target === 'auto' ? 'the account average' : S.target} (${x2(target())}).</div>`
         : '<div class="empty">Nothing matches. Lower the min spend in the control panel or widen the dates.</div>';
@@ -619,6 +646,14 @@ function pProduction() {
     ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
     ${kp('Videos in production', int(inTot), `<span class="muted">${byStatus('Assigned to Editor')} assigned to editor · ${byStatus('Ready for visuals')} ready for visuals</span>`, '<span class="muted">live count from Notion</span>')}
   </div>
+  ${(() => { const tm = D.today.slice(0, 7), lm = addM(tm, -1), lm2 = addM(tm, -2);
+    const vm = m => cnt(PR.videos.filter(v => v.m === m)), sm = m => cnt(((PR.statics || []).find(x => x.month === m) || {items:[]}).items);
+    const card2 = (t, m, o, unit) => `<div class="card kpi"><div class="lbl">${t} · ${MONL(m)}</div><div class="val num">${int(o.total)} <span class="muted" style="font-size:14px">${unit}</span></div>
+      <div class="ratio"><div class="rb">${CATS.map(([n, col]) => `<i style="width:${(share(o, n) * 100).toFixed(1)}%;background:${col}" title="${n} ${pct(share(o, n), 0)}"></i>`).join('')}</div>
+      <div class="rl">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n} <b>${pct(share(o, n), 0)}</b> (${o[n]})</span>`).join('')}</div></div></div>`;
+    return `<h2 class="sec">Month view <small>net new · iteration · adaptation ratio</small></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+      ${card2('Videos', tm, vm(tm), 'so far')}${card2('Videos', lm, vm(lm), 'last month')}${card2('Statics', tm, sm(tm), 'so far')}${card2('Statics', lm, sm(lm), 'last month')}
+      ${card2('Videos', lm2, vm(lm2), '')}${card2('Statics', lm2, sm(lm2), '')}</div>`; })()}
   <div class="chart-top" style="margin-top:22px"><h2 class="sec" style="margin:0">${g === 'month' ? 'Month by month' : 'Week by week'} <small>${g === 'month' ? 'since January' : 'last 12 weeks'}</small></h2>
     <div class="tabs-mini" id="pmode">${[['n','Count'],['p','% mix']].map(([v, l]) => `<button data-v="${v}" class="${(S.pmode || 'n') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
   <div class="grid charts" style="margin-top:10px">
@@ -731,14 +766,14 @@ function pInsights() {
   const [a, b] = R(), cs = concepts(a, b), tot = cs.reduce((x, c) => x + c.sp, 0), bm = target();
   const dims = [
     ['Product', c => c.product], ['Net new vs iteration', c => ccat(c)], ['Video vs static', c => c.kind === 'VID' ? 'Video' : 'Static'],
-    ['Format', c => c.kind === 'VID' ? c.format : (c.format ? 'Static · ' + c.format : null)], ['Avatar', c => cavatar(c)], ['Angle', c => c.angle],
+    ['Avatar', c => cavatar(c)], ['Angle', c => c.angle],
     ['Hook tactic', c => c.hook_tactic], ['Funnel', c => c.funnel], ['Editor', c => c.kind === 'VID' ? c.editor : null], ['Designer', c => c.kind === 'IMG' ? c.designer : null]];
-  const group = fn => { const g = new Map(); for (const c of cs) { const k2 = fn(c); if (!k2) continue; const o = g.get(k2) || {k:k2, sp:0, fc:0, ta:0, pr:0, n:0, hits:0, list:[]}; o.sp += c.sp; o.fc += c.fc; o.ta += c.ta; o.pr += c.pr; o.n++; if (c.usd >= 1000 && c.r[S.model] >= bm) o.hits++; o.list.push(c); g.set(k2, o); } return [...g.values()].sort((x, y) => y.sp - x.sp); };
+  const group = fn => { const g = new Map(); for (const c of cs) { const k2 = fn(c); if (!k2) continue; const o = g.get(k2) || {k:k2, sp:0, fc:0, ta:0, pr:0, n:0, hits:0, list:[], im:0, vim:0, v3:0, oc:0}; o.sp += c.sp; o.fc += c.fc; o.ta += c.ta; o.pr += c.pr; o.n++; if (c.v) { o.im += c.v.im; o.oc += c.v.oc; if (c.kind === 'VID') { o.vim += c.v.im; o.v3 += c.v.v3; } } if (c.usd >= 1000 && c.r[S.model] >= bm) o.hits++; o.list.push(c); g.set(k2, o); } return [...g.values()].sort((x, y) => y.sp - x.sp); };
   const panel = (title, rows, note = '') => {
     const covered = rows.reduce((x, r) => x + r.sp, 0), maxSp = Math.max(1, ...rows.map(r => r.sp));
     return `<div class="card ins"><div class="ins-h"><h3>${title}</h3><span class="muted">${tot ? pct(covered / tot, 0) : '–'} of spend tagged</span></div>
       ${rows.slice(0, 8).map(r => { const rr = {fc:r.fc / r.sp, ta:r.ta / r.sp, pl:r.pr / r.sp}[S.model];
-        return `<div class="ins-row"><div class="ins-l"><b title="${esc(r.k)}">${esc(r.k)}</b><span>${r.n} concepts · ${r.hits} hits</span></div>
+        return `<div class="ins-row"><div class="ins-l"><b title="${esc(r.k)}">${esc(r.k)}</b><span>${r.n} concepts · ${r.hits} hits${r.vim && r.v3 ? ` · hook ${pct(r.v3 / r.vim, 0)}` : ""}${r.im ? ` · CTR ${pct(r.oc / r.im)}` : ""}</span></div>
           <div class="ins-bar"><i style="width:${(r.sp / maxSp * 100).toFixed(1)}%"></i><em>${money(r.sp)} · ${tot ? pct(r.sp / tot, 0) : '–'}</em></div>
           <div class="ins-r ${rc(rr)}">${x2(rr)}</div>
           <div class="ins-t">${r.list.sort((x, y) => y.sp - x.sp).slice(0, 3).map(c => `<img src="${esc(c.thumb || '')}" title="${esc((c.id || '') + ' ' + c.title + ' · ' + money(c.sp))}" data-c="${esc(c.key)}">`).join('')}</div></div>`; }).join('') || '<div class="muted" style="padding:10px 0">No tagged ads in these dates.</div>'}
@@ -750,7 +785,36 @@ function pInsights() {
     return `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${tot ? pct(r.sp / tot, 0) : '–'} <span class="muted" style="font-size:14px">of spend</span></div><div class="delta">${money(r.sp)} · ${MODELS[S.model]} ROAS <b class="${rc(rr)}">${x2(rr)}</b> · ${r.n} concepts</div></div>`; };
   h += `<div class="grid kpis hero">${tile('Net new', cat, 'Net New')}${tile('Iterations', cat, 'Iteration')}${tile('Adaptations', cat, 'Adaptation')}${tile('Video', vs, 'Video')}</div>
   <div class="note">Bars = share of Meta spend in the selected dates. ROAS is ${MODELS[S.model]}; <span class="good">green</span> at or above ${S.target === 'auto' ? 'the account average' : S.target} (${x2(bm)}). A hit = $1k+ spend and above that line. Thumbnails = the 3 biggest spenders, click to open.</div>
+  <div class="card chart-card" style="margin-top:16px"><div class="chart-top"><h3 style="margin:0">Trend by week</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><select id="trDim" style="width:auto">${dims.map(([t], i) => `<option value="${i}" ${(S.trDim || 0) == i ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <div class="tabs-mini" id="trMet">${[['sp','Spend'],['share','% of spend'],['roas',MODELS[S.model] + ' ROAS']].map(([v, l]) => `<button data-v="${v}" class="${(S.trMet || 'sp') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div></div>
+    <div class="legend" id="trLeg"></div><div class="chart-wrap" style="height:280px"><canvas id="chTrI"></canvas></div><div class="note">Top 4 groups of the selected dates, the rest in "Other". Weeks run Monday to Sunday; the current week is still running (*).</div></div>
   <div class="ins-grid">${dims.map(([t, fn]) => panel(t, group(fn), t === 'Net new vs iteration' ? 'Videos: CREATIVES sheet column "Net New VS Ite", falling back to the ad name. Statics: V2+ = iteration, Src-&lt;brand&gt; = adaptation.' : '')).join('')}</div>`;
+  afterRender.push(() => {
+    $('#trDim').onchange = e => { S.trDim = +e.target.value; render(); };
+    $('#trMet').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.trMet = bt.dataset.v; render(); } };
+    const fn = dims[S.trDim || 0][1], met = S.trMet || 'sp';
+    const top = group(fn).slice(0, 4).map(r => r.k);
+    const COLS = ['#b38b33', '#3a80c4', '#cf4640', '#2a9d8f'], OTHER = '#6b6f78';
+    const weeks = []; let m = monday(D.days[0]); if (m < D.days[0]) m = addD(m, 7);
+    while (m <= D.today) { weeks.push([m, addD(m, 6) > D.today ? D.today : addD(m, 6), addD(m, 6) > D.today]); m = addD(m, 7); }
+    const series = top.concat(met === 'roas' ? [] : ['Other']);
+    const data = series.map(() => []);
+    for (const [w0, w1] of weeks) {
+      const acc = series.map(() => ({sp:0, rev:0})); let tot2 = 0;
+      for (const c of concepts(w0, w1)) { const k2 = fn(c); if (!k2) continue; tot2 += c.sp; let i = top.indexOf(k2); if (i < 0) { if (met === 'roas') continue; i = series.length - 1; } acc[i].sp += c.sp; acc[i].rev += revOf(c); }
+      acc.forEach((x, i) => data[i].push(met === 'sp' ? Math.round(x.sp) : met === 'share' ? (tot2 ? +(x.sp / tot2 * 100).toFixed(1) : 0) : (x.sp > 0 ? +(x.rev / x.sp).toFixed(2) : null)));
+    }
+    $('#trLeg').innerHTML = series.map((n, i) => `<span><i style="background:${i < 4 ? COLS[i] : OTHER}"></i>${esc(n)}</span>`).join('');
+    const labels = weeks.map(([w0, , part]) => fmtD(w0) + (part ? '*' : ''));
+    const yt = {color:'#8a8a94', font:{family:'Poppins', size:11}, callback:v => met === 'sp' ? money(v) : met === 'share' ? v + '%' : v};
+    const base = {responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:i => `${i.dataset.label}: ${met === 'sp' ? money(i.raw, 0) : met === 'share' ? i.raw + '%' : x2(i.raw)}`}}},
+      scales:{x:{stacked:met !== 'roas', grid:{display:false}, ticks:{color:'#8a8a94', font:{family:'Poppins', size:11}}}, y:{stacked:met !== 'roas', max:met === 'share' ? 100 : undefined, grid:{color:'#2a2a31'}, ticks:yt}}};
+    charts.trI = new Chart($('#chTrI'), met === 'roas'
+      ? {type:'line', data:{labels, datasets:series.map((n, i) => ({label:n, data:data[i], borderColor:COLS[i], backgroundColor:COLS[i], borderWidth:2, pointRadius:4, tension:.25, spanGaps:true}))}, options:base}
+      : {type:'bar', data:{labels, datasets:series.map((n, i) => ({label:n, data:data[i], backgroundColor:i < 4 ? COLS[i] : OTHER, borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:44}))}, options:base});
+  });
   const fat = fatigue();
   h += `<h2 class="sec">Fatigue watch <small>${MODELS[S.model]} ROAS down 30%+ vs the comparison dates</small></h2>
   ${fat.length ? `<div class="tbl-wrap"><table><thead><tr><th class="l">Concept</th><th>Spend</th><th>Before</th><th>Now</th><th>Change</th></tr></thead><tbody>${fat.slice(0, 12).map(f => `<tr data-c="${esc(f.c.key)}" style="cursor:pointer"><td class="l"><b>${esc(f.c.id || '')}</b> ${esc(f.c.title)}</td><td>${money(f.c.sp)}</td><td>${x2(f.prev)}</td><td class="${rc(f.c.r[S.model])}">${x2(f.c.r[S.model])}</td><td class="down">▼ ${(f.drop * 100).toFixed(0)}%</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nothing fatiguing.</div>'}`;
@@ -761,7 +825,7 @@ function pGuide() {
   <h3>Dates</h3><p>The hub opens on <b>this week</b> (Monday to today). Switch to last week, this month, last month, the last 7 or 30 days, or pick any two dates. Every number is compared with the same dates one period earlier.</p>
   <h3>Three ROAS numbers, one verdict</h3><p><b style="color:var(--gold)">First Click</b> credits the ad that <i>started</i> the customer's journey: it decides whether an ad gets scaled. <b>Triple</b> spreads credit across the journey. <b>Platform</b> is what Meta reports about itself. <span class="good">Green</span> means at or above the target in the control panel (default: the account average for the same dates), <span class="bad">red</span> below.</p>
   <ul><li><span class="pill green">Acquirer</span> First Click holds close to Platform: the ad brings in new people. Iterate on these.</li><li><span class="pill blue">Closer</span> Platform far above First Click: mostly finishes journeys other ads started.</li></ul>
-  <h3>Videos</h3><p>Hover a video card to preview it, click to watch with sound, every hook and every country. <b>Hook</b> = 3-second views ÷ impressions. <b>Hold</b> = ThruPlays ÷ 3-second views (last 7 days of delivery).</p>
+  <h3>Videos</h3><p>Hover a video card to preview it, click to watch with sound, every hook and every country. <b>Hook</b> = 3-second views ÷ impressions. <b>Hold</b> = ThruPlays ÷ 3-second views. <b>Link CTR</b> = outbound clicks ÷ impressions. All follow the selected dates.</p>
   <h3>Where the numbers come from</h3><p>All of it is pulled every day from Triple Whale: revenue, spend, profit and orders from the Summary page, ad-level spend and revenue from pixel attribution (lifetime window) on Meta. USD by default with Triple Whale's own rates; Net profit adds back Australia's custom expenses.</p>
   <h3>How you get credit on the leaderboard</h3><p>The hub reads the <b>ad name</b>: videos credit the editor and strategist in the name, statics the designer and strategist. If your name is missing, the ad does not count for you.</p></div>`;
 }
@@ -789,8 +853,18 @@ function openConcept(key, onlyStore) {
     <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px;font-size:12px">
       <div class="card" style="padding:10px"><div class="muted">Spend</div><b>${money(c.sp)}</b></div>
       <div class="card" style="padding:10px"><div class="muted">${MODELS[S.model]} rev</div><b>${money(revOf(c))}</b></div>
-      <div class="card" style="padding:10px"><div class="muted">${c.kind === 'VID' ? 'Hook / hold' : 'CTR'}</div><b>${c.kind === 'VID' ? pct(c.hook, 0) + ' / ' + pct(c.hold, 0) : pct(c.ctr)}</b></div>
-      <div class="card" style="padding:10px"><div class="muted">FC orders</div><b>${int(c.fco)}</b></div></div>
+      <div class="card" style="padding:10px"><div class="muted">FC orders</div><b>${int(c.fco)}</b></div>
+      <div class="card" style="padding:10px"><div class="muted">FC CPA</div><b>${c.cpa ? money(c.cpa, 0) : '–'}</b></div></div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;font-size:12px">
+      ${c.kind === 'VID' ? `<div class="card" style="padding:10px"><div class="muted">Hook rate</div><b>${pct(c.hook)}</b></div><div class="card" style="padding:10px"><div class="muted">Hold rate</div><b>${pct(c.hold)}</b></div>` : ''}
+      <div class="card" style="padding:10px"><div class="muted">Link CTR</div><b>${pct(c.lctr, 2)}</b></div>
+      <div class="card" style="padding:10px"><div class="muted">CTR (all)</div><b>${pct(c.ctr, 2)}</b></div>
+      <div class="card" style="padding:10px"><div class="muted">CPM</div><b>${c.cpm != null ? money(c.cpm, 2) : '–'}</b></div>
+      <div class="card" style="padding:10px"><div class="muted">Cost per link click</div><b>${c.cpc != null ? money(c.cpc, 2) : '–'}</b></div>
+      ${c.kind === 'VID' ? `<div class="card" style="padding:10px"><div class="muted">Watched to end</div><b>${pct(c.done, 2)}</b></div>` : ''}
+      <div class="card" style="padding:10px"><div class="muted">Impressions</div><b>${int(c.v ? c.v.im : c.im)}</b></div></div>
+    ${c.kind === 'VID' && c.v && c.v.im ? (() => { const v = c.v, st = [['Impressions', v.im], ['3-second view', v.v3], ['25% watched', v.p25], ['50% watched', v.p50], ['75% watched', v.p75], ['100% watched', v.p100]];
+      return `<h2 class="sec" style="font-size:20px">Retention <small>share of impressions still watching</small></h2><div class="card" style="padding:12px 14px">${st.map(([l, n]) => `<div class="ret"><span>${l}</span><div class="ret-bar"><i style="width:${(n / v.im * 100).toFixed(1)}%"></i></div><b>${pct(n / v.im)}</b></div>`).join('')}<div class="note">Hook = 3-second views ÷ impressions. Hold = ThruPlays (15s or full view) ÷ 3-second views.</div></div>`; })() : ''}
     <h2 class="sec" style="font-size:20px">Week by week <small>${MODELS[S.model]} ROAS</small></h2>
     <div class="card chart-card"><div class="chart-wrap" style="height:150px"><canvas id="chDr"></canvas></div></div>
     <h2 class="sec" style="font-size:20px">Every hook &amp; country</h2>
