@@ -10,6 +10,21 @@ const WIN_BAR = 10000;
 const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } };
 
 let D = null;
+let UNL = false; // profit / orders / AOV / CPA unlocked with the HQ password
+const b64 = x => Uint8Array.from(atob(x), ch => ch.charCodeAt(0));
+async function unlockPrivate(pw) {
+  const res = await fetch('data/private.enc.json', {cache:'no-store'});
+  if (!res.ok) throw new Error('locked data missing');
+  const box = await res.json();
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt:b64(box.salt), iterations:box.iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
+  let plain;
+  try { plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64(box.iv)}, key, b64(box.ct)); } catch (e) { throw new Error('Wrong password'); }
+  const priv = JSON.parse(await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+  priv.kpi.forEach((day, i) => { for (const [st, q] of Object.entries(day)) if (D.kpi[i] && D.kpi[i][st]) D.kpi[i][st] = D.kpi[i][st].slice(0, 2).concat(q); });
+  UNL = true; memo.clear();
+}
+const LOCK = '<span class="muted" title="Enter the password on HQ">🔒</span>';
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev'};
 const charts = {};
 const memo = new Map();
@@ -87,7 +102,7 @@ function kpis(a, b, mkt = S.market) {
   for (let i = i0; i <= i1; i++) {
     for (const [st, q] of Object.entries(D.kpi[i] || {})) {
       if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
-      o.sales += q[0] * f; o.spend += q[1] * f; o.profit += q[2] * f; o.orders += q[3]; o.ncOrders += q[4]; o.ncSales += q[5] * f; o.addBack += (q[6] || 0) * f;
+      o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.addBack += (q[6] || 0) * f;
     }
     for (const [st, q] of Object.entries(D.paid[i] || {})) {
       if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
@@ -155,9 +170,7 @@ const minK = () => localMode() ? S.min / fx(S.market) : S.min;
 /* ---------------- leaderboard ---------------- */
 const LEVELS = [[0,'Thrall'],[500,'Karl'],[1500,'Huscarl'],[3500,'Jarl'],[7000,'Konungr']];
 const level = xp => { let i = 0; LEVELS.forEach((L, j) => { if (xp >= L[0]) i = j; }); return {i, name:LEVELS[i][1], base:LEVELS[i][0], next:LEVELS[i + 1] ? LEVELS[i + 1][0] : null, nextName:LEVELS[i + 1] ? LEVELS[i + 1][1] : null}; };
-const CLANS = {editors:{fld:'editor', kind:'VID', name:'Raiders', role:'Editors', title:'Blade of the edit'},
-               designers:{fld:'designer', kind:'IMG', name:'Runecarvers', role:'Designers', title:'Carver of statics'},
-               strategists:{fld:'strategist', kind:null, name:'War Council', role:'Strategists', title:'Keeper of the plan'}};
+const CLANS = {editors:{fld:'editor', kind:'VID'}, designers:{fld:'designer', kind:'IMG'}, strategists:{fld:'strategist', kind:null}};
 function board(a, b, clan, mkt = S.market) {
   const key = ['b', a, b, clan, mkt, S.model, S.cur].join('|');
   if (memo.has(key)) return memo.get(key);
@@ -201,13 +214,14 @@ const ICONS = {
   videos:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>',
   statics:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
   board:'<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',
+  production:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   markets:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
   rookies:'<path d="M12 2l2.9 6.9L22 10l-5.5 4.7L18 22l-6-3.6L6 22l1.5-7.3L2 10l7.1-1.1z"/>',
   road:'<path d="M4 20L10 4M20 20L14 4M12 6v2M12 11v2M12 16v2"/>',
   insights:'<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','The Great Hall'],['markets','Markets'],
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['production','Production'],['markets','Markets'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -215,7 +229,6 @@ function buildShell() {
   $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; $('#side').classList.remove('open'); render(); window.scrollTo(0, 0); } };
   seg('#cMarket', ['ALL', ...D.stores.map(s => s.code)].map(c => [c, (FLAGS[c] || '') + ' ' + (c === 'ALL' ? 'All' : c)]), 'market', () => { if (S.market === 'ALL') S.cur = 'USD'; });
   seg('#cModel', Object.entries(MODELS), 'model');
-  seg('#cCur', [['USD','USD'],['LOCAL','Local']], 'cur');
   const mi = $('#cMin'); mi.value = S.min; $('#cMinV').textContent = '$' + S.min;
   mi.oninput = () => { S.min = +mi.value; $('#cMinV').textContent = '$' + S.min; render(); };
   $('#cTarget').value = S.target; $('#cTarget').onchange = e => { S.target = e.target.value; render(); };
@@ -230,10 +243,9 @@ function seg(sel, opts, key, after) {
   el.onclick = e => { const b = e.target.closest('button'); if (!b || b.disabled) return; S[key] = b.dataset.v; after && after(); render(); };
 }
 function syncControls() {
-  for (const [sel, key] of [['#cMarket','market'],['#cModel','model'],['#cCur','cur']]) for (const b of $(sel).children) b.classList.toggle('on', b.dataset.v === S[key]);
-  $('#cCur').querySelector('[data-v=LOCAL]').disabled = S.market === 'ALL';
+  for (const [sel, key] of [['#cMarket','market'],['#cModel','model']]) for (const b of $(sel).children) b.classList.toggle('on', b.dataset.v === S[key]);
   for (const b of $('#nav').children) b.classList.toggle('active', b.dataset.p === S.page);
-  const h = new URLSearchParams({p:S.page, r:S.preset, m:S.market, a:S.model, c:S.cur, min:S.min, t:S.target});
+  const h = new URLSearchParams({p:S.page, r:S.preset, m:S.market, a:S.model, min:S.min, t:S.target});
   if (S.preset === 'custom') { h.set('from', S.from); h.set('to', S.to); }
   history.replaceState(null, '', '#' + h.toString());
 }
@@ -244,7 +256,6 @@ function readHash() {
   if (S.preset === 'custom' && h.get('from') && h.get('to')) { S.from = h.get('from'); S.to = h.get('to'); }
   if (h.get('m')) S.market = h.get('m');
   if (h.get('a') && MODELS[h.get('a')]) S.model = h.get('a');
-  if (h.get('c')) S.cur = h.get('c');
   if (h.get('min')) S.min = +h.get('min');
   if (h.get('t')) S.target = h.get('t');
 }
@@ -270,7 +281,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, markets:pMarkets, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, production:pProduction, markets:pMarkets, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[S.page] || pHQ)();
   wireRange();
   wireCards(v);
@@ -326,33 +337,35 @@ function pHQ() {
     ${kp('Revenue', money(o.sales), delta(o.sales, p.sales))}
     ${kp('Ad spend', money(o.spend), delta(o.spend, p.spend))}
     ${kp(MODELS[S.model] + ' ROAS', x2(o.r[S.model]), delta(o.r[S.model], p.r[S.model]), rc(o.r[S.model]), 'Paid channels. Platform = Meta self-reported.')}
-    ${kp('Net profit', money(o.profit), delta(o.profit, p.profit), o.profit >= 0 ? 'good' : 'bad', 'AU adds back its custom expenses')}
+    ${UNL ? kp('Net profit', money(o.profit), delta(o.profit, p.profit), o.profit >= 0 ? 'good' : 'bad', 'AU adds back its custom expenses')
+      : `<div class="card kpi"><div class="lbl">🔒 Net profit, AOV, orders</div><form id="pwForm" style="display:flex;gap:6px;margin-top:10px"><input type="password" id="pwIn" placeholder="Password" style="flex:1;min-width:0;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-family:inherit"><button class="btn sm" type="submit">Unlock</button></form><div class="delta" id="pwErr"><span class="muted">For the team only</span></div></div>`}
   </div>
   <div id="moreK" class="${S.more ? '' : 'hidden'}"><div class="grid kpis" style="margin-top:14px">
     ${kp('Blended ROAS', x2(o.roas), delta(o.roas, p.roas))}
     ${kp('First Click ROAS', x2(o.r.fc), delta(o.r.fc, p.r.fc), rc(o.r.fc, 'fc'))}
     ${kp('Triple ROAS', x2(o.r.ta), delta(o.r.ta, p.r.ta), rc(o.r.ta, 'ta'))}
     ${kp('Meta platform ROAS', x2(o.r.pl), delta(o.r.pl, p.r.pl))}
-    ${kp('Orders', int(o.orders), delta(o.orders, p.orders))}
-    ${kp('AOV', money(o.aov, 0), delta(o.aov, p.aov))}
-    ${kp('New-customer CPA', money(o.ncCpa, 0), delta(o.ncCpa, p.ncCpa, true))}
-  </div><div class="note">Net profit is Triple Whale's, with Australia's custom expenses added back (${money(o.addBack)} in this range).</div></div>
+    ${UNL ? kp('Orders', int(o.orders), delta(o.orders, p.orders)) + kp('AOV', money(o.aov, 0), delta(o.aov, p.aov)) + kp('New-customer CPA', money(o.ncCpa, 0), delta(o.ncCpa, p.ncCpa, true)) : ''}
+  </div>${UNL ? `<div class="note">Net profit is Triple Whale's, with Australia's custom expenses added back (${money(o.addBack)} in this range). <a href="#" id="relock">Lock again</a></div>` : '<div class="note">Orders, AOV, new-customer CPA and net profit unlock with the password.</div>'}</div>
   <button class="btn ghost sm more-btn" id="moreBtn">${S.more ? 'Show less' : 'Show all numbers'}</button>
   <h2 class="sec">Champions <small>${fmtD(a)} – ${fmtD(b)}</small></h2>
   <div class="grid champs">
     ${bv ? champ(thumb(bv), '🏆 Best video', esc((bv.id || '') + ' ' + bv.title), `<span class="${rc(bv.r[S.model])}">${x2(bv.r[S.model])}</span> ${MODELS[S.model]} · ${money(bv.sp)}`, `data-c="${esc(bv.key)}"`) : ''}
     ${bs ? champ(thumb(bs), '🖼 Best static', esc((bs.id || '') + ' ' + bs.title), `<span class="${rc(bs.r[S.model])}">${x2(bs.r[S.model])}</span> ${MODELS[S.model]} · ${money(bs.sp)}`, `data-c="${esc(bs.key)}"`) : ''}
-    ${ed ? champ(sh(ed.name), '✂ Top editor', esc(ed.name), `${int(ed.xp)} glory`, 'data-go="board" data-b="editors"') : ''}
-    ${de ? champ(sh(de.name), '🎨 Top designer', esc(de.name), `${int(de.xp)} glory`, 'data-go="board" data-b="designers"') : ''}
-    ${stg ? champ(sh(stg.name), '♟ Top strategist', esc(stg.name), `${int(stg.xp)} glory`, 'data-go="board" data-b="strategists"') : ''}
+    ${ed ? champ(sh(ed.name), '✂ Top editor', esc(ed.name), `${int(ed.xp)} XP`, 'data-go="board" data-b="editors"') : ''}
+    ${de ? champ(sh(de.name), '🎨 Top designer', esc(de.name), `${int(de.xp)} XP`, 'data-go="board" data-b="designers"') : ''}
+    ${stg ? champ(sh(stg.name), '♟ Top strategist', esc(stg.name), `${int(stg.xp)} XP`, 'data-go="board" data-b="strategists"') : ''}
   </div>
   <h2 class="sec">Markets</h2>${marketTable(a, b, ca, cb)}
   <h2 class="sec">Trend <small>by week, ${S.market === 'ALL' ? 'all markets' : S.market}</small></h2>
-  <div class="card chart-card"><div class="chart-top"><div class="tabs-mini" id="trTabs">${[['rev','Revenue'],['sp','Spend'],['roas','ROAS'],['profit','Net profit']].map(([v, l]) => `<button data-v="${v}" class="${S.trend === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <div class="card chart-card"><div class="chart-top"><div class="tabs-mini" id="trTabs">${[['rev','Revenue'],['sp','Spend'],['roas','ROAS']].concat(UNL ? [['profit','Net profit']] : []).map(([v, l]) => `<button data-v="${v}" class="${S.trend === v ? 'on' : ''}">${l}</button>`).join('')}</div>
   ${S.trend === 'roas' ? '<div class="legend" style="margin:0"><span><i style="background:var(--c-fc)"></i>First Click</span><span><i style="background:var(--c-ta)"></i>Triple</span><span><i style="background:var(--c-pl)"></i>Platform (dashed)</span></div>' : ''}</div>
   <div class="chart-wrap" style="height:260px"><canvas id="chTr"></canvas></div><div class="note">The current week is still running (marked *).</div></div>`;
   afterRender.push(() => {
     $('#moreBtn').onclick = () => { S.more = !S.more; render(); };
+    const pf = $('#pwForm'); if (pf) pf.onsubmit = async e => { e.preventDefault(); $('#pwErr').textContent = 'Unlocking...';
+      try { await unlockPrivate($('#pwIn').value); LS('nkhub.key', $('#pwIn').value); render(); } catch (err) { $('#pwErr').innerHTML = '<span class="bad">' + esc(err.message) + '</span>'; } };
+    const rl = $('#relock'); if (rl) rl.onclick = e => { e.preventDefault(); LS('nkhub.key', null); location.reload(); };
     $('#trTabs').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.trend = bt.dataset.v; render(); } };
     document.querySelectorAll('[data-mk]').forEach(tr => tr.onclick = () => { S.market = tr.dataset.mk; render(); });
     trendChart();
@@ -367,10 +380,11 @@ function marketTable(a, b, ca, cb) {
   return `<div class="tbl-wrap"><table><thead><tr><th>Market</th><th>Revenue</th><th>Spend</th><th>${MODELS[S.model]} ROAS</th><th>Net profit</th></tr></thead><tbody>
   ${rows.map(({st, o, p}) => `<tr style="cursor:pointer" data-mk="${st.code}"><td><span class="flag">${FLAGS[st.code]}</span>${st.name}</td>
     <td class="num">${money(o.sales)}${wd(o.sales, p.sales)}</td><td class="num">${money(o.spend)}</td>
-    <td class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}${wd(o.r[S.model], p.r[S.model])}</td><td class="num ${o.profit < 0 ? 'bad' : ''}">${money(o.profit)}</td></tr>`).join('')}
+    <td class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}${wd(o.r[S.model], p.r[S.model])}</td><td class="num ${UNL && o.profit < 0 ? 'bad' : ''}">${UNL ? money(o.profit) : LOCK}</td></tr>`).join('')}
   </tbody></table></div><div class="note">Click a market to focus the hub on it.</div>`;
 }
 function trendChart() {
+  if (S.trend === 'profit' && !UNL) S.trend = 'rev';
   const weeks = []; let m = monday(D.days[0]); if (m < D.days[0]) m = addD(m, 7);
   while (m <= D.today) { weeks.push([m, addD(m, 6) > D.today ? D.today : addD(m, 6), addD(m, 6) > D.today]); m = addD(m, 7); }
   const ks = weeks.map(([a, b]) => kpis(a, b));
@@ -399,7 +413,7 @@ function pCreatives(kind) {
   const people = [...new Set(all.map(c => isV ? c.editor : c.designer).filter(Boolean))].sort();
   h += `<div class="toolbar">
     <select id="fMkt"><option value="ALL">🌍 All countries combined</option>${D.stores.map(s => `<option value="${s.code}" ${S.market === s.code ? 'selected' : ''}>${FLAGS[s.code]} ${s.name}</option>`).join('')}</select>
-    <select id="fSort"><option value="roas">Sort: ${MODELS[S.model]} ROAS</option><option value="rev">Sort: ${MODELS[S.model]} revenue</option><option value="sp">Sort: spend</option>${isV ? '<option value="hook">Sort: hook rate</option>' : '<option value="ctr">Sort: CTR</option>'}<option value="new">Sort: newest launch</option></select>
+    <select id="fSort"><option value="sp">Sort: spend</option><option value="roas">Sort: ${MODELS[S.model]} ROAS</option><option value="rev">Sort: ${MODELS[S.model]} revenue</option>${isV ? '<option value="hook">Sort: hook rate</option>' : '<option value="ctr">Sort: CTR</option>'}<option value="new">Sort: newest launch</option></select>
     <select id="fProd"><option value="">All products</option>${products.map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <select id="fWho"><option value="">All ${isV ? 'editors' : 'designers'}</option>${people.map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <input type="search" id="fQ" placeholder="Search name, ID, angle..."></div><div id="crList"></div>`;
@@ -431,93 +445,146 @@ function pCreatives(kind) {
   return h;
 }
 
-/* ---------------- the great hall ---------------- */
-const SVG = {
-  axe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 4l6 6M4 20L15 9"/><path d="M14 4c-3 0-5 2-5 5l6 1c1-2 3-4 5-4"/></svg>',
-  rune:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v18M8 7l8-4M8 12l8-4"/></svg>',
-  helm:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14a8 8 0 0 1 16 0v4H4z"/><path d="M12 6v12M4 14c-2-1-2-4 0-6M20 14c2-1 2-4 0-6"/></svg>',
-  crown:'<svg class="crown" viewBox="0 0 44 28"><path d="M3 24 L6 6 L15 15 L22 2 L29 15 L38 6 L41 24 Z" fill="#f0d999" stroke="#8c6f3f" stroke-width="1.5"/><circle cx="22" cy="18" r="2.6" fill="#c12f27"/></svg>'
-};
+/* ---------------- leaderboard (16-bit game HUD) ---------------- */
 const BADGES = {
-  berserker:['ᛒ','Berserker','3+ hits: concepts with $1k+ spend beating the account ROAS'],
-  blood:['ᚠ','First Blood','Owns the #1 concept of the period'],
-  raider:['ᚱ','Raider','Launched 3+ new concepts in the period'],
-  wall:['ᛋ','Shield Wall','5+ concepts live at once'],
-  edge:['ᛏ','Sharp Edge','Best ROAS of the clan ($1k+ spend)'],
-  longship:['ᛚ','Longship','Owns a concept past the $10k win bar'],
-  streak:['ᛁ','Iron Streak','#1 two weeks or more in a row']
+  hits:['3+ hits','3 or more concepts with $1k+ spend beating the account ROAS'],
+  mvp:['MVP','Owns the #1 concept of the period by revenue'],
+  launch:['3+ launches','Launched 3 or more new concepts in the period'],
+  live:['5+ live','5 or more concepts spending at once'],
+  edge:['Best ROAS','Best ROAS of the team with $1k+ spend'],
+  win:['$10k winner','Owns a concept past the $10k win bar'],
+  streak:['#1 streak','#1 two weeks or more in a row']
 };
+const ROLE_UI = {editors:['🪓','Editors','videos'], designers:['🛡️','Designers','statics'], strategists:['⚔️','Strategists','all ads']};
 function pBoard() {
-  const [a, b] = R(), C = CLANS[S.board];
+  const [a, b] = R();
   const bd = board(a, b, S.board), [ca, cb] = compareRange(a, b), prev = board(ca, cb, S.board);
   const sx = season(S.board), ats = allTimeSpend();
   const edgeP = bd.filter(p => p.sp >= 1000 * (localMode() ? 1 / fx(S.market) : 1)).sort((x, y) => y.r[S.model] - x.r[S.model])[0];
   for (const p of bd) {
     p.badges = [];
-    if (p.hits >= 3) p.badges.push('berserker');
-    if (p.mvp) p.badges.push('blood');
-    if (p.launches >= 3) p.badges.push('raider');
-    if (p.concepts.length >= 5) p.badges.push('wall');
+    if (p.mvp) p.badges.push('mvp');
+    if (p.hits >= 3) p.badges.push('hits');
+    if (p.launches >= 3) p.badges.push('launch');
+    if (p.concepts.length >= 5) p.badges.push('live');
     if (edgeP && edgeP.name === p.name) p.badges.push('edge');
-    if (p.concepts.some(c => (ats.get(c.key) || {}).sp >= WIN_BAR)) p.badges.push('longship');
+    if (p.concepts.some(c => (ats.get(c.key) || {}).sp >= WIN_BAR)) p.badges.push('win');
     if (p.rank === 1 && streak(S.board, p.name) >= 2) p.badges.push('streak');
   }
-  const badgeHtml = p => p.badges.map(k2 => `<span class="bdg" title="${esc(BADGES[k2][2])}"><i>${BADGES[k2][0]}</i>${BADGES[k2][1]}</span>`).join('');
+  const chips = p => p.badges.map(k2 => `<span class="chip" title="${esc(BADGES[k2][1])}">${BADGES[k2][0]}</span>`).join('');
   const lv = name => { const x = sx[name] || 0, L = level(x); return {x, L, prog:L.next ? (x - L.base) / (L.next - L.base) : 1}; };
+  const hearts = n => { const on = Math.min(n, 6); return `<div class="hearts" title="${n} hits">${'♥'.repeat(on)}<span class="off">${'♥'.repeat(6 - on)}</span></div>`; };
+  const roasCls = v => rc(v) === 'good' ? 'g-money' : 'g-red';
   let h = rangeBar().replace('class="rangebar"', 'class="rangebar" style="margin-top:0"');
-  h += `<div class="hall"><div class="hall-title"><div class="runes">ᚾᛟᚱᚦ · ᚲᚾᛁᚠ</div><h1>The Great Hall</h1><div class="sub">${fmtD(a)} – ${fmtD(b)} · ${MODELS[S.model]} · ${S.market === 'ALL' ? 'all markets' : S.market}</div></div>
-    <div class="clans">${Object.entries(CLANS).map(([kk, c]) => `<button class="clan ${S.board === kk ? 'on' : ''}" data-bt="${kk}">${kk === 'editors' ? SVG.axe : kk === 'designers' ? SVG.rune : SVG.helm}<span>${c.name}<br><small>${c.role}</small></span></button>`).join('')}</div>`;
-  if (!bd.length) h += '<div class="empty" style="margin-top:20px">No warriors credited in this range. Names must be in the ad name.</div>';
+  h += `<div class="hud"><div class="hud-title"><h1 class="vk">Leaderboard</h1><span class="sub">${fmtD(a)} – ${fmtD(b)} · ${MODELS[S.model]} · ${S.market === 'ALL' ? 'all markets' : S.market}</span></div>
+    <div class="roles">${Object.entries(ROLE_UI).map(([kk, [ic, nm, what]]) => { const n = board(a, b, kk).length;
+      return `<button class="role wood ${S.board === kk ? 'on' : ''}" data-bt="${kk}"><span class="ico slot">${ic}</span><span><div class="rl vk">${nm}</div><div class="rs">${n} on the board · ${what}</div></span></button>`; }).join('')}</div>`;
+  if (!bd.length) h += '<div class="empty">No one credited in this range. Names must be in the ad name.</div>';
   else {
     const order = [bd[1], bd[0], bd[2]];
-    h += `<div class="thrones">${order.map((p, i) => { if (!p) return '<div></div>'; const t = ['t2','t1','t3'][i], place = ['II · Silver','I · Champion','III · Bronze'][i], l = lv(p.name);
-      return `<div class="throne ${t}">${t === 't1' ? SVG.crown : ''}<div class="place">${place}</div><div class="shield"><span>${esc(initials(p.name))}</span></div>
-        <div class="nm">${esc(p.name)}</div><div class="title">${l.L.name} · ${C.title}</div>
-        <div class="glory">${int(p.xp)}<small>GLORY</small></div>
-        <div class="bar-xp"><i style="width:${(l.prog * 100).toFixed(0)}%"></i></div><div class="lvl-line">${l.L.next ? `${int(l.L.next - l.x)} season glory to ${l.L.nextName}` : 'Highest rank reached'}</div>
-        <div class="lvl-line" style="margin-top:6px">${money(p.rev)} ${MODELS[S.model]} · ROAS <b class="${rc(p.r[S.model])}">${x2(p.r[S.model])}</b></div>
-        <div class="badges-row">${badgeHtml(p)}</div>
-        <div class="loot">${p.concepts.slice(0, 4).map(c => `<img src="${esc(c.thumb || '')}" title="${esc((c.id || '') + ' ' + c.title)}" data-c="${esc(c.key)}">`).join('')}</div></div>`; }).join('')}</div>`;
+    h += `<div class="podium3">${order.map((p, i) => { if (!p) return '<div></div>'; const t = ['p2','p1','p3'][i], place = ['2nd','1st','3rd'][i], l = lv(p.name);
+      return `<div class="hero-card wood ${t}"><div class="place">${place}</div>
+        <div class="portrait"><span>${esc(initials(p.name))}</span></div>
+        <div class="nm vk">${esc(p.name)}</div><div class="lv">Level ${String(l.L.i + 1).padStart(2, '0')} · ${l.L.name}</div>
+        <div class="stat2"><div class="slot"><div class="k">Spend</div><div class="v px g-money">${money(p.sp)}</div></div>
+          <div class="slot"><div class="k">${MODELS[S.model]} revenue</div><div class="v px g-score">${money(p.rev)}</div></div>
+          <div class="slot"><div class="k">XP</div><div class="v px g-sky">${int(p.xp)}</div></div>
+          <div class="slot"><div class="k">ROAS</div><div class="v px ${roasCls(p.r[S.model])}">${x2(p.r[S.model])}</div></div></div>
+        ${hearts(p.hits)}
+        <div class="xpline"><span>XP</span><div class="xpbar2"><i style="width:${(l.prog * 100).toFixed(0)}%"></i></div><span>${l.L.next ? int(l.L.next - l.x) + ' to ' + l.L.nextName : 'max'}</span></div>
+        <div class="chips">${chips(p)}</div>
+        <div class="loot2">${p.concepts.slice(0, 4).map(c => `<img class="slot" src="${esc(c.thumb || '')}" title="${esc((c.id || '') + ' ' + c.title)}" data-c="${esc(c.key)}">`).join('')}</div></div>`; }).join('')}</div>`;
   }
-  h += '</div>';
-  // roster + side panels
+  const C = CLANS[S.board];
   const team = concepts(a, b).filter(c => !C.kind || c.kind === C.kind);
   const weeksN = Math.max(1, nDays(a, b) / 7);
   const launches = team.filter(c => isNew(c, a, b)).length, bm = benchmark(team);
   const hits = team.filter(c => c.usd >= 1000 && c.r[S.model] >= bm).length;
-  const bigRaid = team.slice().sort((x, y) => y.fc - x.fc)[0];
-  const quests = [
-    [`Launch ${Math.round(15 * weeksN)} new concepts`, launches, Math.round(15 * weeksN)],
-    [`Land ${Math.round(5 * weeksN)} hits`, hits, Math.round(5 * weeksN)],
-    ['One raid worth $5k First Click', bigRaid ? Math.min(bigRaid.fc * (localMode() ? fx(S.market) : 1), 5000) : 0, 5000]
-  ];
-  const log = [];
-  if (bigRaid) log.push(['ᚠ', `<b>${esc(bigRaid[C.fld] || '?')}</b>'s ${esc(bigRaid.id || bigRaid.title)} brought home ${money(bigRaid.fc)} First Click`]);
-  team.filter(c => isNew(c, a, b) && c.usd >= 300).sort((x, y) => y.r[S.model] - x.r[S.model]).slice(0, 2).forEach(c => log.push(['ᚱ', `New blade: <b>${esc(c.id || c.title)}</b> by ${esc(c[C.fld] || '?')} opens at <span class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</span>`]));
-  team.filter(c => { const t = ats.get(c.key); return t && t.sp >= WIN_BAR && t.sp - c.usd < WIN_BAR; }).slice(0, 3).forEach(c => log.push(['ᛚ', `<b>${esc(c.id || c.title)}</b> crossed the $10k win bar`]));
+  const top = team.slice().sort((x, y) => revOf(y) - revOf(x))[0];
+  const goals = [[`Launch ${Math.round(15 * weeksN)} new concepts`, launches, Math.round(15 * weeksN), false],
+                 [`Land ${Math.round(5 * weeksN)} hits`, hits, Math.round(5 * weeksN), false],
+                 ['One concept with $5k revenue', top ? Math.min(revOf(top) * (localMode() ? fx(S.market) : 1), 5000) : 0, 5000, true]];
+  const hl = [];
+  if (top) hl.push(`<b>${esc(top[C.fld] || '?')}</b>'s ${esc(top.id || top.title)} made ${money(revOf(top))} on ${money(top.sp)} spend`);
+  team.filter(c => isNew(c, a, b) && c.usd >= 300).sort((x, y) => y.r[S.model] - x.r[S.model]).slice(0, 2).forEach(c => hl.push(`New: <b>${esc(c.id || c.title)}</b> by ${esc(c[C.fld] || '?')} at <span class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</span> ROAS`));
+  team.filter(c => { const t = ats.get(c.key); return t && t.sp >= WIN_BAR && t.sp - c.usd < WIN_BAR; }).slice(0, 3).forEach(c => hl.push(`<b>${esc(c.id || c.title)}</b> crossed the $10k win bar`));
   const climber = bd.map(p => { const q = prev.find(x => x.name === p.name); return {p, up:q ? q.rank - p.rank : 0}; }).sort((x, y) => y.up - x.up)[0];
-  if (climber && climber.up > 0) log.push(['ᛏ', `<b>${esc(climber.p.name)}</b> climbed ${climber.up} place${climber.up > 1 ? 's' : ''}`]);
-  h += `<div class="hall-grid"><div class="roster"><div class="row h"><div>Rank</div><div>Warrior</div><div>Glory</div><div>${MODELS[S.model]} ROAS</div><div>Spend</div></div>
-    ${bd.map(p => { const q = prev.find(x => x.name === p.name); const mv = !q ? '<span class="mv-new">NEW</span>' : q.rank > p.rank ? `<span class="mv-up">▲${q.rank - p.rank}</span>` : q.rank < p.rank ? `<span class="mv-dn">▼${p.rank - q.rank}</span>` : '<span class="muted">=</span>';
+  if (climber && climber.up > 0) hl.push(`<b>${esc(climber.p.name)}</b> moved up ${climber.up} place${climber.up > 1 ? 's' : ''}`);
+  h += `<div class="hud-grid"><div class="roster2 wood"><div class="row h"><div>Rank</div><div>Name</div><div>XP</div><div>Spend</div><div>${MODELS[S.model]} revenue</div><div>ROAS</div><div>Best ads</div></div>
+    ${bd.map(p => { const q = prev.find(x => x.name === p.name); const mv = !q ? '<span class="mv-new">NEW</span>' : q.rank > p.rank ? `<span class="mv-up">▲${q.rank - p.rank}</span>` : q.rank < p.rank ? `<span class="mv-dn">▼${p.rank - q.rank}</span>` : '<span class="sm">=</span>';
       const l = lv(p.name);
-      return `<div class="row"><div class="rk">${p.rank}<div style="font-size:11px;font-family:Poppins">${mv}</div></div>
-        <div class="who"><div class="mini-shield">${esc(initials(p.name))}</div><div style="min-width:0"><div class="nm2">${esc(p.name)} <span class="t2">· ${l.L.name}</span></div>
-        <div class="t2">${p.concepts.length} live · ${p.launches} new · ${p.hits} hits ${p.badges.map(k2 => `<span title="${esc(BADGES[k2][1] + ': ' + BADGES[k2][2])}" style="font-family:'Noto Sans Runic';color:var(--gold)">${BADGES[k2][0]}</span>`).join(' ')}</div></div></div>
-        <div><b style="color:#f0d999">${int(p.xp)}</b><div class="bar-xp" style="margin:4px 0 0"><i style="width:${(l.prog * 100).toFixed(0)}%"></i></div></div>
-        <div class="${rc(p.r[S.model])}" style="font-weight:600">${x2(p.r[S.model])}</div><div>${money(p.sp)}</div></div>`; }).join('')}
+      return `<div class="row"><div class="rk px">${p.rank}<div style="font-size:11px;font-family:Poppins">${mv}</div></div>
+        <div class="who"><div class="mini">${esc(initials(p.name))}</div><div style="min-width:0"><div style="font-weight:600">${esc(p.name)}</div>
+          <div class="sm">Lv ${l.L.i + 1} ${l.L.name} · ${p.concepts.length} live · ${p.launches} new · ${p.hits} hits${p.mvp ? ' · MVP' : ''}</div></div></div>
+        <div class="big px g-sky">${int(p.xp)}</div><div class="big px g-money">${money(p.sp)}</div><div class="big px g-score">${money(p.rev)}</div>
+        <div class="big px ${roasCls(p.r[S.model])}">${x2(p.r[S.model])}</div>
+        <div class="thumbs-row">${p.concepts.slice(0, 4).map(c => `<img src="${esc(c.thumb || '')}" title="${esc((c.id || '') + ' ' + c.title)}" data-c="${esc(c.key)}" style="cursor:pointer">`).join('')}</div></div>`; }).join('')}
   </div><div>
-    <div class="panel-viking"><h3>Clan quests</h3>${quests.map(([t, v, goal]) => `<div class="quest ${v >= goal ? 'done' : ''}"><div class="q"><span>${v >= goal ? '✓ ' : ''}${t}</span><b>${goal >= 1000 ? money(v) : int(v)} / ${goal >= 1000 ? money(goal) : goal}</b></div><div class="bar-xp" style="max-width:none"><i style="width:${Math.min(100, v / goal * 100).toFixed(0)}%"></i></div></div>`).join('')}</div>
-    <div class="panel-viking"><h3>Saga of the week</h3><ul class="log">${log.length ? log.map(([ic, t]) => `<li><span class="ic">${ic}</span><span>${t}</span></li>`).join('') : '<li>Quiet seas. No raids yet.</li>'}</ul></div>
+    <div class="side-panel wood"><h3 class="vk">Team goals</h3>${goals.map(([t, v, goal, isMoney]) => `<div class="goal ${v >= goal ? 'done' : ''}"><div class="q"><span>${v >= goal ? '✓ ' : ''}${t}</span><b>${isMoney ? money(v) : int(v)} / ${isMoney ? money(goal) : goal}</b></div><div class="xpbar2" style="max-width:none;margin-top:5px"><i style="width:${Math.min(100, v / goal * 100).toFixed(0)}%"></i></div></div>`).join('')}</div>
+    <div class="side-panel wood"><h3 class="vk">Highlights</h3><ul class="hl-list">${hl.length ? hl.map(t => `<li>${t}</li>`).join('') : '<li>Nothing yet in these dates.</li>'}</ul></div>
   </div></div>
-  <div class="panel-viking" style="margin-top:16px"><h3>Codex of glory</h3><div class="codex">
-    <div><b>1 glory / $100</b>${MODELS[S.model]} revenue your ads brought in (USD)</div>
-    <div><b>+150 per hit</b>concept with $1k+ spend beating the account ${MODELS[S.model]} ROAS</div>
-    <div><b>+25 per launch</b>new concept launched in the period</div>
-    <div><b>+250 First Blood</b>owning the #1 concept by revenue</div>
-    <div><b>Ranks</b>season glory (all full weeks): Thrall · Karl 500 · Huscarl 1,500 · Jarl 3,500 · Konungr 7,000</div>
-    ${Object.values(BADGES).map(([r, n, d]) => `<div><b><span style="font-family:'Noto Sans Runic'">${r}</span> ${n}</b>${d}</div>`).join('')}
-  </div><div class="note">Andy and Claude fight as one strategist. Credit comes from the ad name: if your name is not in it, the ad does not count for you.</div></div>`;
+  <div class="side-panel wood" style="margin-top:12px"><h3 class="vk">How XP is scored</h3><div class="rules2">
+    <div class="slot"><b>1 XP / $100</b>of ${MODELS[S.model]} revenue your ads brought in (USD)</div>
+    <div class="slot"><b>+150 per hit</b>a concept with $1,000+ spend that beats the account ${MODELS[S.model]} ROAS</div>
+    <div class="slot"><b>+25 per launch</b>a new concept that started spending in these dates</div>
+    <div class="slot"><b>+250 MVP</b>owning the #1 concept by revenue</div>
+    <div class="slot"><b>Levels</b>season XP over all full weeks: Thrall · Karl 500 · Huscarl 1,500 · Jarl 3,500 · Konungr 7,000</div>
+  </div><div class="note" style="color:#a3a7b0">Andy and Claude count as one strategist. Credit comes from the ad name: if your name is not in it, the ad does not count for you.</div></div></div>`;
   afterRender.push(() => document.querySelectorAll('[data-bt]').forEach(el => el.onclick = () => { S.board = el.dataset.bt; render(); }));
+  return h;
+}
+
+/* ---------------- production ---------------- */
+let PR = null;
+const CATS = [['Net New','#b38b33'],['Iteration','#3a80c4'],['Adaptation','#cf4640']];
+function pProduction() {
+  const [a, b] = R();
+  let h = head('How much we make', 'Production');
+  if (!PR) return h + '<div class="empty">Production data not loaded yet.</div>';
+  const vids = PR.videos.filter(v => v.d >= a && v.d <= b);
+  const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; } return o; };
+  const c = cnt(vids), [ca, cb] = compareRange(a, b), cp = cnt(PR.videos.filter(v => v.d >= ca && v.d <= cb));
+  const inprod = PR.in_production || [], inTot = inprod.reduce((s, r) => s + r.n, 0);
+  const byStatus = st => inprod.filter(r => r.status === st).reduce((s, r) => s + r.n, 0);
+  const months = (PR.statics || []).filter(m => m.month >= a.slice(0, 7) && m.month <= b.slice(0, 7));
+  const stTot = months.reduce((s, m) => s + m.count, 0);
+  const nnPct = c.total ? c['Net New'] / c.total : 0, nnPrev = cp.total ? cp['Net New'] / cp.total : 0;
+  const kp = (lbl, val, d, sub = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="delta">${d}${sub}</div></div>`;
+  h += `<div class="grid kpis hero">
+    ${kp('Videos delivered', int(c.total), delta(c.total, cp.total), ` <span class="muted">· ${int(c.hooks)} files with hooks</span>`)}
+    ${kp('Net new vs iteration', `${int(c['Net New'])} <span class="muted" style="font-size:18px">/</span> ${int(c.Iteration + c.Adaptation)}`, `<span class="muted">${pct(nnPct, 0)} net new</span> ${delta(nnPct, nnPrev)}`)}
+    ${kp('Videos in production', int(inTot), `<span class="muted">${byStatus('Assigned to Editor')} assigned to editor · ${byStatus('Ready for visuals')} ready for visuals</span>`)}
+    ${kp('Statics approved', int(stTot), `<span class="muted">${months.map(m => P(m.month + '-01').toLocaleDateString('en-GB', {month:'long', timeZone:'UTC'})).join(', ') || 'no month in range'} · Figma</span>`)}
+  </div>
+  <div class="note">Videos: CREATIVES sheet (date sent). In production: Notion Evergreen Video, live count now. Statics: Figma "Meta Square Ads - Approved" per month page. Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>
+  <h2 class="sec">Videos per week <small>Net New · Iteration · Adaptation</small></h2>
+  <div class="card chart-card"><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:260px"><canvas id="chPw"></canvas></div><div class="note">Current week still running (*).</div></div>`;
+  const weeks = []; let m = monday(addD(D.today, -7 * 11));
+  while (m <= D.today) { const e = addD(m, 6); const ws = PR.videos.filter(v => v.d >= m && v.d <= e); weeks.push({m, e, part:e > D.today, ...cnt(ws)}); m = addD(m, 7); }
+  h += `<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Week</th><th>Videos</th><th>Files (hooks)</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>Net new %</th></tr></thead><tbody>
+    ${weeks.slice().reverse().map(w => `<tr><td>${fmtD(w.m)} – ${fmtD(w.e > D.today ? D.today : w.e)}${w.part ? ' *' : ''}</td><td><b>${w.total}</b></td><td>${w.hooks}</td><td>${w['Net New']}</td><td>${w.Iteration}</td><td>${w.Adaptation}</td><td>${w.total ? pct(w['Net New'] / w.total, 0) : '–'}</td></tr>`).join('')}
+  </tbody></table></div>`;
+  const eds = {};
+  for (const v of vids) { const kk = v.editor || 'Unknown'; const o = eds[kk] || (eds[kk] = {n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0}); o.n++; o.hooks += v.hooks || 0; if (o[v.cat] !== undefined) o[v.cat]++; }
+  for (const r of inprod) { const kk = r.editor || 'Unassigned'; const o = eds[kk] || (eds[kk] = {n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0}); o.prod += r.n; }
+  h += `<h2 class="sec">By editor <small>${fmtD(a)} – ${fmtD(b)} · in production = now</small></h2><div class="tbl-wrap"><table><thead><tr><th>Editor</th><th>Delivered</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>In production</th></tr></thead><tbody>
+    ${Object.entries(eds).sort((x, y) => y[1].n - x[1].n || y[1].prod - x[1].prod).map(([n, o]) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o.hooks}</td><td>${o['Net New']}</td><td>${o.Iteration}</td><td>${o.Adaptation}</td><td>${o.prod}</td></tr>`).join('')}
+  </tbody></table></div>`;
+  const st = (PR.statics || []).filter(x => x.count > 0);
+  const des = {};
+  for (const mm of months) for (const it of mm.items) { const o = des[it.designer] || (des[it.designer] = {n:0, 'Net New':0, Iteration:0, Adaptation:0}); o.n++; o[it.cat]++; }
+  h += `<h2 class="sec">Statics approved per month <small>Figma · Meta Square Ads - Approved</small></h2>
+  <div class="card chart-card"><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:240px"><canvas id="chSt"></canvas></div></div>
+  <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Designer (${months.map(x => x.month).join(', ') || '–'})</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>
+    ${Object.entries(des).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o['Net New']}</td><td>${o.Iteration}</td><td>${o.Adaptation}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No month in the selected dates</td></tr>'}
+  </tbody></table></div><div class="note">Statics: V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation, the rest net new. Each static counted once (1x1 frame).</div>`;
+  afterRender.push(() => {
+    const opt = {responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false}, plugins:{legend:{display:false}},
+      scales:{x:{stacked:true, grid:{display:false}, ticks:{color:'#8a8a94', font:{family:'Poppins', size:11}}}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', precision:0}}}};
+    charts.pw = new Chart($('#chPw'), {type:'bar', data:{labels:weeks.map(w => fmtD(w.m) + (w.part ? '*' : '')), datasets:CATS.map(([n, col]) => ({label:n, data:weeks.map(w => w[n]), backgroundColor:col, borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}))}, options:opt});
+    const cats = mm => { const o = {'Net New':0, Iteration:0, Adaptation:0}; mm.items.forEach(i => o[i.cat]++); return o; };
+    charts.st = new Chart($('#chSt'), {type:'bar', data:{labels:st.map(x => P(x.month + '-01').toLocaleDateString('en-GB', {month:'short', timeZone:'UTC'})), datasets:CATS.map(([n, col]) => ({label:n, data:st.map(x => cats(x)[n]), backgroundColor:col, borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}))}, options:opt});
+  });
   return h;
 }
 
@@ -536,7 +603,7 @@ function pMarkets() {
       <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0">
         <div><div class="muted" style="font-size:11px">REVENUE</div><b class="num">${money(o.sales)}</b></div>
         <div><div class="muted" style="font-size:11px">${MODELS[S.model].toUpperCase()} ROAS</div><b class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}</b></div>
-        <div><div class="muted" style="font-size:11px">PROFIT</div><b class="num">${money(o.profit)}</b></div></div>
+        <div><div class="muted" style="font-size:11px">PROFIT</div><b class="num">${UNL ? money(o.profit) : LOCK}</b></div></div>
       <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">${best(bv, 'Best video')}${best(bs, 'Best static')}</div></div>`;
   }
   S.market = save;
@@ -605,8 +672,8 @@ function pGuide() {
   <h3>Three ROAS numbers, one verdict</h3><p><b style="color:var(--gold)">First Click</b> credits the ad that <i>started</i> the customer's journey: it decides whether an ad gets scaled. <b>Triple</b> spreads credit across the journey. <b>Platform</b> is what Meta reports about itself. <span class="good">Green</span> means at or above the target in the control panel (default: the account average for the same dates), <span class="bad">red</span> below.</p>
   <ul><li><span class="pill green">Acquirer</span> First Click holds close to Platform: the ad brings in new people. Iterate on these.</li><li><span class="pill blue">Closer</span> Platform far above First Click: mostly finishes journeys other ads started.</li></ul>
   <h3>Videos</h3><p>Hover a video card to preview it, click to watch with sound, every hook and every country. <b>Hook</b> = 3-second views ÷ impressions. <b>Hold</b> = ThruPlays ÷ 3-second views (last 7 days of delivery).</p>
-  <h3>Where the numbers come from</h3><p>All of it is pulled every day from Triple Whale: revenue, spend, profit and orders from the Summary page, ad-level spend and revenue from pixel attribution (lifetime window) on Meta. USD by default with Triple Whale's own rates; pick one country and switch Currency to Local for its own currency. Net profit adds back Australia's custom expenses.</p>
-  <h3>How you get credit in the Great Hall</h3><p>The hub reads the <b>ad name</b>: videos credit the editor and strategist in the name, statics the designer and strategist. If your name is missing, the ad does not count for you.</p></div>`;
+  <h3>Where the numbers come from</h3><p>All of it is pulled every day from Triple Whale: revenue, spend, profit and orders from the Summary page, ad-level spend and revenue from pixel attribution (lifetime window) on Meta. USD by default with Triple Whale's own rates; Net profit adds back Australia's custom expenses.</p>
+  <h3>How you get credit on the leaderboard</h3><p>The hub reads the <b>ad name</b>: videos credit the editor and strategist in the name, statics the designer and strategist. If your name is missing, the ad does not count for you.</p></div>`;
 }
 
 /* ---------------- drawer ---------------- */
@@ -661,9 +728,12 @@ async function start() {
   if (!res.ok) throw new Error('data file missing (' + res.status + ')');
   D = await res.json();
   if (D.v !== 2) throw new Error('old data format');
+  try { const pr = await fetch('data/production.json', {cache:'no-store'}); if (pr.ok) PR = await pr.json(); } catch (e) { PR = null; }
   LS('nkhub.pw', null);
   readHash(); applyPreset();
   if (!S.from) [S.from, S.to] = presetRange('week');
+  const saved = LS('nkhub.key');
+  if (saved) { try { await unlockPrivate(saved); } catch (e) { LS('nkhub.key', null); } }
   $('#lock').classList.add('hidden'); $('#app').classList.remove('hidden');
   buildShell(); render();
 }
