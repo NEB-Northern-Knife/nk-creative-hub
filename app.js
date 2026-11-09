@@ -13,7 +13,7 @@ let D = null;
 let ACCESS = null; // 'editor' | 'strategist' | 'owner' (Andy, 2026-11-09: access depends on the password)
 let REV = false;  // store revenue / spend / paid totals (strategist, owner)
 let UNL = false;  // net profit / orders / AOV / CPA (owner)
-const ROLE_NAME = {editor:'Editor', strategist:'Strategist', owner:'Owner'};
+const ROLE_NAME = {editor:'Editor & designer', strategist:'Strategist', owner:'Owner'};
 const b64 = x => Uint8Array.from(atob(x), ch => ch.charCodeAt(0));
 const gunzip = async buf => new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 async function openBox(rawKey, bytes) {
