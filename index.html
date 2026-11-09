@@ -14,14 +14,11 @@
 <body>
 
 <div id="lock">
-  <form class="lock-card" id="lockForm" autocomplete="off">
+  <div class="lock-card">
     <div class="wordmark">NORTHERN<span>KNIFE</span></div>
     <div class="sub">Creative Hub · Performance &amp; Growth</div>
-    <input type="password" id="pw" placeholder="Team password" autofocus>
-    <label><input type="checkbox" id="remember" checked> Remember on this device</label>
-    <button class="btn" style="width:100%" type="submit">Enter the hall</button>
-    <div id="lockErr"></div>
-  </form>
+    <div id="lockErr" style="color:var(--muted)">Loading the latest numbers...</div>
+  </div>
 </div>
 
 <div id="app" class="hidden">
@@ -42,7 +39,7 @@
     <div class="side-foot">
       <div><span class="dot"></span>Live from Triple Whale</div>
       <div id="genAt" style="margin-top:4px"></div>
-      <div style="margin-top:8px"><button class="btn ghost sm" id="lockBtn">Lock</button> <button class="btn ghost sm" id="shareBtn">Copy link to this view</button></div>
+      <div style="margin-top:8px"><button class="btn ghost sm" id="shareBtn">Copy link to this view</button></div>
     </div>
   </aside>
   <main>
