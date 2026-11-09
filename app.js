@@ -10,22 +10,39 @@ const WIN_BAR = 10000;
 const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } };
 
 let D = null;
-let UNL = false; // profit / orders / AOV / CPA unlocked with the HQ password
+let ACCESS = null; // 'editor' | 'strategist' | 'owner' (Andy, 2026-11-09: access depends on the password)
+let REV = false;  // store revenue / spend / paid totals (strategist, owner)
+let UNL = false;  // net profit / orders / AOV / CPA (owner)
+const ROLE_NAME = {editor:'Editor', strategist:'Strategist', owner:'Owner'};
 const b64 = x => Uint8Array.from(atob(x), ch => ch.charCodeAt(0));
-async function unlockPrivate(pw) {
-  const res = await fetch('data/private.enc.json', {cache:'no-store'});
-  if (!res.ok) throw new Error('locked data missing');
-  const box = await res.json();
-  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt:b64(box.salt), iterations:box.iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
-  let plain;
-  try { plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64(box.iv)}, key, b64(box.ct)); } catch (e) { throw new Error('Wrong password'); }
-  const priv = JSON.parse(await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
-  (priv.mkpi || []).forEach((mo, i) => { for (const [st, q] of Object.entries(mo)) if (D.mkpi[i] && D.mkpi[i][st]) D.mkpi[i][st] = D.mkpi[i][st].slice(0, 2).concat(q); });
-  priv.kpi.forEach((day, i) => { for (const [st, q] of Object.entries(day)) if (D.kpi[i] && D.kpi[i][st]) D.kpi[i][st] = D.kpi[i][st].slice(0, 2).concat(q); });
-  UNL = true; memo.clear();
+const gunzip = async buf => new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+async function openBox(rawKey, bytes) {
+  const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt']);
+  return JSON.parse(await gunzip(await crypto.subtle.decrypt({name:'AES-GCM', iv:bytes.slice(0, 12)}, key, bytes.slice(12))));
 }
-const LOCK = '<span class="muted" title="Enter the password on HQ">🔒</span>';
+async function login(pw) {
+  const res = await fetch('data/keys.json', {cache:'no-store'});
+  if (!res.ok) throw new Error('data missing (' + res.status + ')');
+  const box = await res.json();
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const wrap = new Uint8Array(await crypto.subtle.deriveBits({name:'PBKDF2', salt:b64(box.salt), iterations:box.iter, hash:'SHA-256'}, base, 256));
+  let grant = null;
+  for (const e of box.roles) { try { grant = await openBox(wrap, b64(e)); break; } catch (err) { /* not this role */ } }
+  if (!grant) throw new Error('Wrong password');
+  const layer = async name => openBox(b64(grant.keys[name]), new Uint8Array(await (await fetch(`data/${name}.bin`, {cache:'no-store'})).arrayBuffer()));
+  const [bd, rv, ow] = await Promise.all([layer('base'), grant.keys.rev ? layer('rev') : null, grant.keys.own ? layer('own') : null]);
+  const empty = n => Array.from({length:n}, () => ({}));
+  bd.kpi = rv ? rv.kpi : empty(bd.days.length); bd.mkpi = rv ? rv.mkpi : empty((bd.months || []).length);
+  bd.paid = rv ? rv.paid : empty(bd.days.length); bd.mpaid = rv ? rv.mpaid : empty((bd.months || []).length);
+  if (ow) {
+    ow.kpi.forEach((day, i) => { for (const [st, q] of Object.entries(day)) if (bd.kpi[i] && bd.kpi[i][st]) bd.kpi[i][st] = bd.kpi[i][st].concat(q); });
+    (ow.mkpi || []).forEach((mo, i) => { for (const [st, q] of Object.entries(mo)) if (bd.mkpi[i] && bd.mkpi[i][st]) bd.mkpi[i][st] = bd.mkpi[i][st].concat(q); });
+  }
+  if (bd.v !== 2) throw new Error('old data format');
+  D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; memo.clear();
+}
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner']};
+const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev'};
 const charts = {};
 const memo = new Map();
@@ -270,7 +287,7 @@ const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top stat
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
-  $('#nav').innerHTML = PAGES.map(([p, l]) => `<button class="nav-item" data-p="${p}"><svg viewBox="0 0 24 24">${ICONS[p]}</svg>${l}</button>`).join('');
+  $('#nav').innerHTML = PAGES.filter(([p]) => canSee(p)).map(([p, l]) => `<button class="nav-item" data-p="${p}"><svg viewBox="0 0 24 24">${ICONS[p]}</svg>${l}</button>`).join('');
   $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; $('#side').classList.remove('open'); render(); window.scrollTo(0, 0); } };
   seg('#cMarket', ['ALL', ...D.stores.map(s => s.code)].map(c => [c, (FLAGS[c] || '') + ' ' + (c === 'ALL' ? 'All' : c)]), 'market', () => { if (S.market === 'ALL') S.cur = 'USD'; });
   seg('#cModel', Object.entries(MODELS), 'model');
@@ -280,6 +297,8 @@ function buildShell() {
   $('#genAt').textContent = 'Synced ' + new Date(D.generated).toLocaleString('en-GB', {dateStyle:'medium', timeStyle:'short'});
   $('#shareBtn').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(location.href); $('#shareBtn').textContent = 'Copied ✓'; setTimeout(() => $('#shareBtn').textContent = 'Copy link to this view', 1500); };
   $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
+  $('#roleTag').textContent = ROLE_NAME[ACCESS] + ' access';
+  $('#logoutBtn').onclick = () => { LS('nkhub.pass', null); location.hash = ''; location.reload(); };
   $('#scrim').onclick = closeDrawer;
 }
 function seg(sel, opts, key, after) {
@@ -296,7 +315,7 @@ function syncControls() {
 }
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1));
-  if (h.get('p') && PAGES.some(p => p[0] === h.get('p'))) S.page = h.get('p');
+  if (h.get('p') && PAGES.some(p => p[0] === h.get('p')) && canSee(h.get('p'))) S.page = h.get('p');
   if (h.get('r')) S.preset = h.get('r');
   if (S.preset === 'custom' && h.get('from') && h.get('to')) { S.from = h.get('from'); S.to = h.get('to'); }
   if (h.get('m')) S.market = h.get('m');
@@ -385,7 +404,7 @@ function render() {
   syncControls();
   const v = $('#view');
   v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, production:pProduction, markets:pMarkets, rookies:pRookies,
-                  road:pRoad, insights:pInsights, guide:pGuide}[S.page] || pHQ)();
+                  road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireCards(v);
   v.querySelectorAll('[data-go]').forEach(el => el.onclick = () => { S.page = el.dataset.go; if (el.dataset.b) S.board = el.dataset.b; render(); window.scrollTo(0, 0); });
@@ -442,13 +461,12 @@ function pHQ() {
     <div class="ch-body"><div class="ch-id">${int(p.xp)} XP</div><div class="ch-name">${esc(p.name)}</div>
     <div class="ch-stats"><div><span>Spend</span><b>${money(p.sp)}</b></div><div><span>ROAS</span><b class="${rc(p.r[S.model])}">${x2(p.r[S.model])}</b></div><div><span>Revenue</span><b>${money(p.rev)}</b></div></div>
     <div class="ch-who">${p.concepts.length} concepts live · ${p.hits} hits</div></div></div>`;
-  let h = head('Performance & growth', 'HQ overview');
-  h += `<div class="grid kpis hero">
+  let h = head(REV ? 'Performance & growth' : 'Creative performance', 'HQ overview');
+  if (REV) h += `<div class="grid kpis hero">
     ${kp('Revenue', money(o.sales), delta(o.sales, p.sales))}
     ${kp('Ad spend', money(o.spend), delta(o.spend, p.spend))}
     ${kp(MODELS[S.model] + ' ROAS', x2(o.r[S.model]), delta(o.r[S.model], p.r[S.model]), rc(o.r[S.model]), 'Paid channels. Platform = Meta self-reported.')}
-    ${UNL ? kp('Net profit', money(o.profit), delta(o.profit, p.profit), o.profit >= 0 ? 'good' : 'bad', 'AU adds back its custom expenses')
-      : `<div class="card kpi"><div class="lbl">🔒 Net profit, AOV, orders</div><form id="pwForm" style="display:flex;gap:6px;margin-top:10px"><input type="password" id="pwIn" placeholder="Password" style="flex:1;min-width:0;background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-family:inherit"><button class="btn sm" type="submit">Unlock</button></form><div class="delta" id="pwErr"><span class="muted">For the team only</span></div></div>`}
+    ${UNL ? kp('Net profit', money(o.profit), delta(o.profit, p.profit), o.profit >= 0 ? 'good' : 'bad', 'AU adds back its custom expenses') : ''}
   </div>
   <div id="moreK" class="${S.more ? '' : 'hidden'}"><div class="grid kpis" style="margin-top:14px">
     ${kp('Blended ROAS', x2(o.roas), delta(o.roas, p.roas))}
@@ -456,20 +474,19 @@ function pHQ() {
     ${kp('Triple ROAS', x2(o.r.ta), delta(o.r.ta, p.r.ta), rc(o.r.ta, 'ta'))}
     ${kp('Meta platform ROAS', x2(o.r.pl), delta(o.r.pl, p.r.pl))}
     ${UNL ? kp('Orders', int(o.orders), delta(o.orders, p.orders)) + kp('AOV', money(o.aov, 0), delta(o.aov, p.aov)) + kp('New-customer CPA', money(o.ncCpa, 0), delta(o.ncCpa, p.ncCpa, true)) : ''}
-  </div>${UNL ? `<div class="note">Net profit is Triple Whale's, with Australia's custom expenses added back (${money(o.addBack)} in this range). <a href="#" id="relock">Lock again</a></div>` : '<div class="note">Orders, AOV, new-customer CPA and net profit unlock with the password.</div>'}</div>
-  <button class="btn ghost sm more-btn" id="moreBtn">${S.more ? 'Show less' : 'Show all numbers'}</button>
+  </div>${UNL ? `<div class="note">Net profit is Triple Whale's, with Australia's custom expenses added back (${money(o.addBack)} in this range).</div>` : ''}</div>
+  <button class="btn ghost sm more-btn" id="moreBtn">${S.more ? 'Show less' : 'Show all numbers'}</button>`;
+  h += `
   <h2 class="sec">Champions <small>${fmtD(a)} – ${fmtD(b)} · ads ranked by spend</small></h2>
-  <div class="grid champs">${adCard(bv, '🏆 Top video')}${adCard(bs, '🖼 Top static')}${pCard(ed, '✂ Top editor', 'editors')}${pCard(de, '🎨 Top designer', 'designers')}${pCard(stg, '♟ Top strategist', 'strategists')}</div>
-  <h2 class="sec">Markets</h2>${marketTable(a, b, ca, cb)}
+  <div class="grid champs">${adCard(bv, '🏆 Top video')}${canSee('statics') ? adCard(bs, '🖼 Top static') : ''}${pCard(ed, '✂ Top editor', 'editors')}${pCard(de, '🎨 Top designer', 'designers')}${pCard(stg, '♟ Top strategist', 'strategists')}</div>
+  `;
+  if (REV) h += `<h2 class="sec">Markets</h2>${marketTable(a, b, ca, cb)}
   <h2 class="sec">Trend <small>by week, ${S.market === 'ALL' ? 'all markets' : S.market}</small></h2>
   <div class="card chart-card"><div class="chart-top"><div class="tabs-mini" id="trTabs">${[['rev','Revenue'],['sp','Spend'],['roas','ROAS']].concat(UNL ? [['profit','Net profit']] : []).map(([v, l]) => `<button data-v="${v}" class="${S.trend === v ? 'on' : ''}">${l}</button>`).join('')}</div>
   ${S.trend === 'roas' ? '<div class="legend" style="margin:0"><span><i style="background:var(--c-fc)"></i>First Click</span><span><i style="background:var(--c-ta)"></i>Triple</span><span><i style="background:var(--c-pl)"></i>Platform (dashed)</span></div>' : ''}</div>
   <div class="chart-wrap" style="height:260px"><canvas id="chTr"></canvas></div><div class="note">The current week is still running (marked *).</div></div>`;
-  afterRender.push(() => {
+  if (REV) afterRender.push(() => {
     $('#moreBtn').onclick = () => { S.more = !S.more; render(); };
-    const pf = $('#pwForm'); if (pf) pf.onsubmit = async e => { e.preventDefault(); $('#pwErr').textContent = 'Unlocking...';
-      try { await unlockPrivate($('#pwIn').value); LS('nkhub.key', $('#pwIn').value); render(); } catch (err) { $('#pwErr').innerHTML = '<span class="bad">' + esc(err.message) + '</span>'; } };
-    const rl = $('#relock'); if (rl) rl.onclick = e => { e.preventDefault(); LS('nkhub.key', null); location.reload(); };
     $('#trTabs').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.trend = bt.dataset.v; render(); } };
     document.querySelectorAll('[data-mk]').forEach(tr => tr.onclick = () => { S.market = tr.dataset.mk; render(); });
     trendChart();
@@ -481,10 +498,10 @@ function marketTable(a, b, ca, cb) {
   const rows = D.stores.map(st => { const o = kpis(a, b, st.code), p = kpis(ca, cb, st.code); return {st, o, p}; }).filter(r => r.o.sales > 0 || r.o.spend > 50);
   S.market = save;
   const wd = (c, p) => !p ? '' : `<span class="${c >= p ? 'up' : 'down'}" style="font-size:11px;margin-left:4px">${c >= p ? '▲' : '▼'}${Math.abs((c / p - 1) * 100).toFixed(0)}%</span>`;
-  return `<div class="tbl-wrap"><table><thead><tr><th>Market</th><th>Revenue</th><th>Spend</th><th>${MODELS[S.model]} ROAS</th><th>Net profit</th></tr></thead><tbody>
+  return `<div class="tbl-wrap"><table><thead><tr><th>Market</th><th>Revenue</th><th>Spend</th><th>${MODELS[S.model]} ROAS</th>${UNL ? '<th>Net profit</th>' : ''}</tr></thead><tbody>
   ${rows.map(({st, o, p}) => `<tr style="cursor:pointer" data-mk="${st.code}"><td><span class="flag">${FLAGS[st.code]}</span>${st.name}</td>
     <td class="num">${money(o.sales)}${wd(o.sales, p.sales)}</td><td class="num">${money(o.spend)}</td>
-    <td class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}${wd(o.r[S.model], p.r[S.model])}</td><td class="num ${UNL && o.profit < 0 ? 'bad' : ''}">${UNL ? money(o.profit) : LOCK}</td></tr>`).join('')}
+    <td class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}${wd(o.r[S.model], p.r[S.model])}</td>${UNL ? `<td class="num ${o.profit < 0 ? 'bad' : ''}">${money(o.profit)}</td>` : ''}</tr>`).join('')}
   </tbody></table></div><div class="note">Click a market to focus the hub on it.</div>`;
 }
 function trendChart() {
@@ -729,7 +746,7 @@ function pProduction() {
 /* ---------------- other pages ---------------- */
 function pMarkets() {
   const [a, b] = R(), mk = minK();
-  let h = head('Every country at a glance', 'Markets') + '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(330px,1fr))">';
+  let h = head(REV ? 'Every country at a glance' : 'Best video in every country', 'Markets') + '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(330px,1fr))">';
   const save = S.market;
   for (const st of D.stores) {
     S.market = st.code;
@@ -738,11 +755,11 @@ function pMarkets() {
     const bs = cs.filter(c => c.kind === 'IMG' && c.sp >= mk).sort((x, y) => y.r[S.model] - x.r[S.model])[0];
     const best = (c, lbl) => c ? `<div class="card mk" data-c="${esc(c.key)}" data-st="${st.code}" style="margin:0"><div class="thumb" style="background-image:url('${esc(c.thumb || '')}')"></div><div class="body"><div class="s">${lbl}</div><div class="ttl">${esc((c.id || '') + ' ' + c.title)}</div><div class="s"><span class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</span> · ${money(c.sp)}</div></div></div>` : `<div class="empty" style="padding:20px">No ${lbl.toLowerCase()}</div>`;
     h += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div class="wordmark" style="font-size:28px">${FLAGS[st.code]} ${st.code}</div><span class="pill">${st.cur}</span></div>
-      <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0">
+      ${REV ? `<div class="grid" style="grid-template-columns:repeat(${UNL ? 3 : 2},1fr);gap:8px;margin:12px 0">
         <div><div class="muted" style="font-size:11px">REVENUE</div><b class="num">${money(o.sales)}</b></div>
         <div><div class="muted" style="font-size:11px">${MODELS[S.model].toUpperCase()} ROAS</div><b class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}</b></div>
-        <div><div class="muted" style="font-size:11px">PROFIT</div><b class="num">${UNL ? money(o.profit) : LOCK}</b></div></div>
-      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">${best(bv, 'Best video')}${best(bs, 'Best static')}</div></div>`;
+        ${UNL ? `<div><div class="muted" style="font-size:11px">PROFIT</div><b class="num">${money(o.profit)}</b></div>` : ''}</div>` : '<div style="height:12px"></div>'}
+      <div class="grid" style="grid-template-columns:${canSee('statics') ? '1fr 1fr' : '1fr'};gap:10px">${best(bv, 'Best video')}${canSee('statics') ? best(bs, 'Best static') : ''}</div></div>`;
   }
   S.market = save;
   afterRender.push(() => document.querySelectorAll('.mk[data-st]').forEach(el => el.onclick = () => openConcept(el.dataset.c, el.dataset.st)));
@@ -916,19 +933,24 @@ function closeDrawer() { const p = $('#dPlayer'); if (p) p.pause(); $('#drawer')
 document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); dpClose(); } });
 
 /* ---------------- boot ---------------- */
-async function start() {
-  const res = await fetch('data/hub.json', {cache:'no-store'});
-  if (!res.ok) throw new Error('data file missing (' + res.status + ')');
-  D = await res.json();
-  if (D.v !== 2) throw new Error('old data format');
-  try { const pr = await fetch('data/production.json', {cache:'no-store'}); if (pr.ok) PR = await pr.json(); } catch (e) { PR = null; }
-  LS('nkhub.pw', null);
+function showApp() {
   readHash(); applyPreset();
   if (!S.from) [S.from, S.to] = presetRange('week');
-  const saved = LS('nkhub.key');
-  if (saved) { try { await unlockPrivate(saved); } catch (e) { LS('nkhub.key', null); } }
   $('#lock').classList.add('hidden'); $('#app').classList.remove('hidden');
   buildShell(); render();
+}
+async function start() {
+  LS('nkhub.pw', null); LS('nkhub.key', null);
+  const saved = LS('nkhub.pass');
+  if (saved) { try { await login(saved); return showApp(); } catch (e) { LS('nkhub.pass', null); } }
+  $('#lockErr').textContent = '';
+  $('#loginForm').classList.remove('hidden'); $('#pwIn').focus();
+  $('#loginForm').onsubmit = async e => {
+    e.preventDefault(); const pw = $('#pwIn').value; if (!pw) return;
+    $('#lockErr').textContent = 'Opening the hub...'; $('#loginBtn').disabled = true;
+    try { await login(pw); if ($('#pwKeep').checked) LS('nkhub.pass', pw); showApp(); }
+    catch (err) { $('#lockErr').innerHTML = '<span class="bad">' + esc(err.message) + '</span>'; $('#loginBtn').disabled = false; $('#pwIn').select(); }
+  };
 }
 start().catch(err => { $('#lockErr').textContent = 'Could not load data: ' + err.message; });
 })();
