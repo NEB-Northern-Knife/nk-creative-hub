@@ -41,7 +41,7 @@ async function login(pw) {
   if (bd.v !== 2) throw new Error('old data format');
   D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; memo.clear();
 }
-const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner']};
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['strategist','owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev'};
 const charts = {};
@@ -276,6 +276,7 @@ const ICONS = {
   videos:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M10 9l5 3-5 3z"/>',
   statics:'<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
   board:'<path d="M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>',
+  reports:'<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   production:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   markets:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/>',
   rookies:'<path d="M12 2l2.9 6.9L22 10l-5.5 4.7L18 22l-6-3.6L6 22l1.5-7.3L2 10l7.1-1.1z"/>',
@@ -283,7 +284,7 @@ const ICONS = {
   insights:'<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['production','Production'],['markets','Markets'],
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['markets','Markets'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -403,7 +404,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, production:pProduction, markets:pMarkets, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, production:pProduction, markets:pMarkets, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireCards(v);
@@ -660,6 +661,90 @@ let PR = null;
 const CATS = [['Net New','#b38b33'],['Iteration','#3a80c4'],['Adaptation','#cf4640']];
 const MON = s => P(s + '-01').toLocaleDateString('en-GB', {month:'short', timeZone:'UTC'});
 const MONL = s => P(s + '-01').toLocaleDateString('en-GB', {month:'long', year:'numeric', timeZone:'UTC'});
+/* ---------------- editor reports (Andy, 2026-11-09: strategist + owner only) ---------------- */
+function pReports() {
+  const [a, b] = R(), mk = minK();
+  let h = head('One card per editor', 'Editor reports');
+  const all = concepts(a, b).filter(c => c.kind === 'VID' && c.editor);
+  const teamBm = benchmark(all);
+  const agg = list => { const v = {im:0, v3:0, tp:0, oc:0}; let sp = 0, rev = 0, usd = 0;
+    for (const c of list) { sp += c.sp; rev += revOf(c); usd += c.usd; if (c.v) for (const kk in v) v[kk] += c.v[kk] || 0; }
+    return {sp, rev, usd, roas: sp ? rev / sp : 0, hook: v.im ? v.v3 / v.im : null, hold: v.v3 ? v.tp / v.v3 : null, lctr: v.im ? v.oc / v.im : null}; };
+  const hitsOf = list => { const tested = list.filter(c => c.usd >= 1000); return {tested:tested.length, hits:tested.filter(c => c.r[S.model] >= teamBm).length}; };
+  // win rate 2026: concepts launched at least 14 days ago that reached the $10k win bar (all markets, all year)
+  const ats = [...allTimeSpend().values()].filter(c => c.kind === 'VID' && c.editor), cut = addD(D.today, -14), fl = firstLive();
+  const eligible = ats.filter(c => { const i = fl.get(c.key); return i === -1 || (i !== undefined && D.days[i] <= cut); });
+  const winOf = list => ({n:list.length, w:list.filter(c => c.usd >= WIN_BAR).length});
+  // delivery: CREATIVES sheet, last 12 weeks
+  const wk0 = monday(addD(D.today, -7 * 11)), weeks = []; for (let m = wk0; m <= D.today; m = addD(m, 7)) weeks.push(m);
+  const vids = PR ? PR.videos : [];
+  const inprod = PR ? PR.in_production || [] : [];
+  const g = gran(), inRangeVids = PR ? vidsIn(a, b, g) : [];
+  const names = new Set([...all.map(c => c.editor), ...vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor)]);
+  const team = {agg:agg(all), hit:hitsOf(all), win:winOf(eligible), perWeek:0, spc:0};
+  const activeEds = new Set(vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor)).size || 1;
+  team.perWeek = vids.filter(v => v.d >= wk0 && v.editor).length / weeks.length / activeEds;
+  const live = new Set(all.map(c => c.editor)).size || 1;
+  team.spc = all.length ? team.agg.sp / all.length : 0;
+  const eds = [...names].map(n => {
+    const cs = all.filter(c => c.editor === n), my = vids.filter(v => v.editor === n);
+    return {n, cs, a:agg(cs), hit:hitsOf(cs), win:winOf(eligible.filter(c => c.editor === n)),
+      wk:weeks.map(w => my.filter(v => v.d >= w && v.d <= addD(w, 6)).length), mix:cnt(inRangeVids.filter(v => v.editor === n)),
+      year:my.filter(v => v.d >= MIN_DAY).length, prod:inprod.filter(r => r.editor === n).reduce((x, r) => x + r.n, 0),
+      launches:cs.filter(c => isNew(c, a, b)).length};
+  }).filter(e => e.cs.length || e.wk.some(x => x)).sort((x, y) => y.a.sp - x.a.sp || y.year - x.year);
+  const chip = (v, t, kind) => { if (v == null || t == null || !isFinite(v) || !isFinite(t) || !t) return '<span class="cmpc">no team figure</span>';
+    if (kind === 'pt') { const dp = (v - t) * 100; return `<span class="cmpc ${Math.abs(dp) < 1 ? '' : dp > 0 ? 'good' : 'bad'}">${dp >= 0 ? '▲ +' : '▼ '}${dp.toFixed(0)} pts vs team</span>`; }
+    const d = v / t - 1, up = d >= 0, good = kind === 'inv' ? !up : up;
+    return `<span class="cmpc ${Math.abs(d) < 0.03 ? '' : good ? 'good' : 'bad'}">${up ? '▲' : '▼'} ${Math.abs(d * 100).toFixed(0)}% vs team</span>`; };
+  const rate = o => o.n !== undefined ? (o.n ? o.w / o.n : null) : (o.tested ? o.hits / o.tested : null);
+  const stat = (lbl, val, ch, sub = '') => `<div class="rs-s"><span>${lbl}</span><b>${val}</b>${ch}${sub ? `<em>${sub}</em>` : ''}</div>`;
+  const mini = c => `<div class="rs-ad" data-c="${esc(c.key)}"><div class="t" style="background-image:url('${esc(c.thumb || '')}')"></div><div><div class="i">${esc(c.id || '')}${c.product ? ' · ' + esc(c.product) : ''}</div><div class="n">${esc(c.title)}</div><div class="m"><b class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</b> · ${money(c.sp)}</div></div></div>`;
+  h += `<div class="note" style="margin:-8px 0 16px">Performance uses the selected dates and market (${MODELS[S.model]}). Hit = a concept with $1k+ spend beating the editors' average ROAS (${x2(teamBm)}). Win rate = share of 2026 concepts (launched 14+ days ago) that reached $10k spend. Videos delivered come from the CREATIVES sheet, in production from Notion. For win and hit rates, Last 30 days or This year reads best.</div>`;
+  h += `<div class="rs-team card"><div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
+    <div><span>Hook · Hold</span><b>${pct(team.agg.hook, 0)} · ${pct(team.agg.hold, 0)}</b></div><div><span>Spend per concept</span><b>${money(team.spc)}</b></div><div><span>Videos / editor / week</span><b>${team.perWeek.toFixed(1)}</b></div></div>`;
+  h += '<div class="rs-grid">' + eds.map((e, idx) => {
+    const tested = e.cs.filter(c => c.usd >= mk).length >= 2 ? e.cs.filter(c => c.usd >= mk) : e.cs.filter(c => c.sp > 0);
+    const byR = tested.slice().sort((x, y) => y.r[S.model] - x.r[S.model]);
+    const best = byR.slice(0, 3), worst = byR.length > 3 ? byR.slice(-3).reverse().filter(c => !best.includes(c)) : [];
+    const prods = {}; for (const c of e.cs) { const p = c.product || 'Other'; const o = prods[p] || (prods[p] = {sp:0, rev:0, n:0}); o.sp += c.sp; o.rev += revOf(c); o.n++; }
+    const pl = Object.entries(prods).sort((x, y) => y[1].sp - x[1].sp).slice(0, 5), pmax = pl.length ? pl[0][1].sp : 1;
+    const perWeek = e.wk.reduce((x, y) => x + y, 0) / weeks.length;
+    return `<div class="card rs-card">
+      <div class="rs-head"><div class="portrait sm"><span>${esc(initials(e.n))}</span></div><div style="min-width:0"><div class="rs-name">${esc(e.n)}</div>
+        <div class="muted" style="font-size:12px">${e.cs.length} concepts live · ${e.launches} new · ${e.year} videos delivered in 2026 · ${e.prod} in production now</div></div>
+        <div class="rs-rank">#${idx + 1}<span>by spend</span></div></div>
+      <div class="rs-stats">
+        ${stat('Spend', money(e.a.sp), chip(e.cs.length ? e.a.sp / e.cs.length : null, team.spc), 'per concept: ' + money(e.cs.length ? e.a.sp / e.cs.length : 0))}
+        ${stat(MODELS[S.model] + ' ROAS', `<span class="${rc(e.a.roas)}">${x2(e.a.roas)}</span>`, chip(e.a.roas, teamBm), money(e.a.rev) + ' revenue')}
+        ${stat('Hit rate', pct(rate(e.hit), 0), chip(rate(e.hit), rate(team.hit), 'pt'), `${e.hit.hits} of ${e.hit.tested} with $1k+ spend`)}
+        ${stat('Win rate 2026', pct(rate(e.win), 0), chip(rate(e.win), rate(team.win), 'pt'), `${e.win.w} of ${e.win.n} reached $10k`)}
+        ${stat('Hook rate', pct(e.a.hook, 0), chip(e.a.hook, team.agg.hook, 'pt'))}
+        ${stat('Hold rate', pct(e.a.hold, 0), chip(e.a.hold, team.agg.hold, 'pt'))}
+        ${stat('Link CTR', pct(e.a.lctr), chip(e.a.lctr, team.agg.lctr))}
+        ${stat('Videos / week', perWeek.toFixed(1), chip(perWeek, team.perWeek), 'last 12 weeks')}
+      </div>
+      <div class="rs-row">
+        <div><div class="rs-h">Videos delivered per week <small>last 12 weeks</small></div><div class="chart-wrap" style="height:120px"><canvas id="rsW${idx}"></canvas></div>
+          <div class="rs-h" style="margin-top:10px">Mix in these dates <small>${e.mix.total} videos</small></div>
+          ${e.mix.total ? `<div class="ratio"><div class="rb">${CATS.map(([n, col]) => `<i style="width:${(share(e.mix, n) * 100).toFixed(1)}%;background:${col}"></i>`).join('')}</div><div class="rl">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n} <b>${pct(share(e.mix, n), 0)}</b> (${e.mix[n]})</span>`).join('')}</div></div>` : '<div class="muted" style="font-size:12px">None delivered in these dates</div>'}</div>
+        <div><div class="rs-h">By product <small>spend · ROAS</small></div>${pl.length ? pl.map(([p, o]) => `<div class="rs-p"><span>${esc(p)}</span><div class="bar"><i style="width:${(o.sp / pmax * 100).toFixed(0)}%"></i></div><b>${money(o.sp)}</b><b class="${rc(o.sp ? o.rev / o.sp : 0)}">${x2(o.sp ? o.rev / o.sp : 0)}</b></div>`).join('') : '<div class="muted" style="font-size:12px">No spend in these dates</div>'}</div>
+      </div>
+      <div class="rs-row">
+        <div><div class="rs-h">Best ads <small>highest ${MODELS[S.model]} ROAS</small></div>${best.map(mini).join('') || '<div class="muted" style="font-size:12px">No ads with spend</div>'}</div>
+        <div><div class="rs-h">Worst ads <small>lowest ROAS</small></div>${worst.map(mini).join('') || '<div class="muted" style="font-size:12px">Not enough ads to compare</div>'}</div>
+      </div></div>`;
+  }).join('') + '</div>';
+  if (!eds.length) h += '<div class="empty">No editor activity in these dates.</div>';
+  afterRender.push(() => eds.forEach((e, idx) => {
+    charts['rs' + idx] = new Chart($('#rsW' + idx), {type:'bar', data:{labels:weeks.map(w => fmtD(w)), datasets:[
+      {type:'line', label:'Team average', data:weeks.map(() => +team.perWeek.toFixed(1)), borderColor:'#8a8a94', borderDash:[4, 4], borderWidth:1.5, pointRadius:0},
+      {label:'Videos', data:e.wk, backgroundColor:'#b38b33', borderRadius:3, maxBarThickness:18}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
+        scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:6}}, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', precision:0, font:{size:10}}}}}});
+  }));
+  return h;
+}
 function gran() { if (['week','lastweek','7d'].includes(S.preset)) return 'week'; if (S.preset === 'custom') return nDays(S.from, S.to) <= 14 ? 'week' : 'month'; return 'month'; }
 function monthsIn(a, b) { const out = []; let m = a.slice(0, 7); while (m <= b.slice(0, 7)) { out.push(m); const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + 1); m = iso(d).slice(0, 7); } return out; }
 function vidsIn(a, b, g) { if (g === 'month') { const ms = monthsIn(a, b); return PR.videos.filter(v => ms.includes(v.m)); } return PR.videos.filter(v => v.d >= a && v.d <= b); }
