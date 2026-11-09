@@ -678,18 +678,31 @@ function pReports() {
   // delivery: CREATIVES sheet, last 12 weeks
   const wk0 = monday(addD(D.today, -7 * 11)), weeks = []; for (let m = wk0; m <= D.today; m = addD(m, 7)) weeks.push(m);
   const vids = PR ? PR.videos : [];
+  const rg = S.rsg || 'week';
+  const y0 = vids.reduce((m, v) => v.d && v.d.slice(0, 4) < m ? v.d.slice(0, 4) : m, D.today.slice(0, 4));
+  const bks = rg === 'month' ? monthsIn(MIN_DAY, D.today).map(m => ({label:MON(m), f:v => v.m === m}))
+    : rg === 'year' ? Array.from({length:+D.today.slice(0, 4) - +y0 + 1}, (_, i) => String(+y0 + i)).map(y => ({label:y, f:v => (v.d || '').startsWith(y)}))
+    : weeks.map(w => ({label:fmtD(w), f:v => v.d >= w && v.d <= addD(w, 6)}));
+  const RGN = {week:'week', month:'month', year:'year'}[rg];
+  // product of a delivered video: the product field of its name (NK749_..._SANTOKU_... -> BJORN Santoku)
+  const PK = {}; for (const c of allTimeSpend().values()) if (c.product) PK[c.product.toUpperCase()] = c.product;
+  Object.assign(PK, {SANTOKU:'BJORN Santoku', MIX:'Multi', 'ROLLING KNIFE SHARPENER':'Rolling Sharpener', 'ROLLING KNIFE SHARPE':'Rolling Sharpener'});
+  const prodOf = v => { for (const t of (v.name || '').split(/_| - /)) { const k = PK[t.trim().toUpperCase()]; if (k) return k; } return 'Other'; };
   const inprod = PR ? PR.in_production || [] : [];
-  const g = gran(), inRangeVids = PR ? vidsIn(a, b, g) : [];
+  const inRangeVids = PR ? PR.videos.filter(v => v.d >= a && v.d <= b) : []; // exact dates sent, so Week/Month/Year presets count exactly
   const names = new Set([...all.map(c => c.editor), ...vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor)]);
   const team = {agg:agg(all), hit:hitsOf(all), win:winOf(eligible), perWeek:0, spc:0};
   const activeEds = new Set(vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor)).size || 1;
   team.perWeek = vids.filter(v => v.d >= wk0 && v.editor).length / weeks.length / activeEds;
-  const live = new Set(all.map(c => c.editor)).size || 1;
+  const edVids = vids.filter(v => v.editor);
+  team.bk = bks.map(x => { const l = edVids.filter(x.f); return l.length ? l.length / new Set(l.map(v => v.editor)).size : 0; });
+  const rv = inRangeVids.filter(v => v.editor); team.inRange = rv.length ? rv.length / new Set(rv.map(v => v.editor)).size : 0;
   team.spc = all.length ? team.agg.sp / all.length : 0;
   const eds = [...names].map(n => {
     const cs = all.filter(c => c.editor === n), my = vids.filter(v => v.editor === n);
     return {n, cs, a:agg(cs), hit:hitsOf(cs), win:winOf(eligible.filter(c => c.editor === n)),
-      wk:weeks.map(w => my.filter(v => v.d >= w && v.d <= addD(w, 6)).length), mix:cnt(inRangeVids.filter(v => v.editor === n)),
+      wk:weeks.map(w => my.filter(v => v.d >= w && v.d <= addD(w, 6)).length), bk:bks.map(x => my.filter(x.f).length),
+      mine:inRangeVids.filter(v => v.editor === n), mix:cnt(inRangeVids.filter(v => v.editor === n)),
       year:my.filter(v => v.d >= MIN_DAY).length, prod:inprod.filter(r => r.editor === n).reduce((x, r) => x + r.n, 0),
       launches:cs.filter(c => isNew(c, a, b)).length};
   }).filter(e => e.cs.length || e.wk.some(x => x)).sort((x, y) => y.a.sp - x.a.sp || y.year - x.year);
@@ -701,14 +714,17 @@ function pReports() {
   const stat = (lbl, val, ch, sub = '') => `<div class="rs-s"><span>${lbl}</span><b>${val}</b>${ch}${sub ? `<em>${sub}</em>` : ''}</div>`;
   const mini = c => `<div class="rs-ad" data-c="${esc(c.key)}"><div class="t" style="background-image:url('${esc(c.thumb || '')}')"></div><div><div class="i">${esc(c.id || '')}${c.product ? ' · ' + esc(c.product) : ''}</div><div class="n">${esc(c.title)}</div><div class="m"><b class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</b> · ${money(c.sp)}</div></div></div>`;
   h += `<div class="note" style="margin:-8px 0 16px">Performance uses the selected dates and market (${MODELS[S.model]}). Hit = a concept with $1k+ spend beating the editors' average ROAS (${x2(teamBm)}). Win rate = share of 2026 concepts (launched 14+ days ago) that reached $10k spend. Videos delivered come from the CREATIVES sheet, in production from Notion. For win and hit rates, Last 30 days or This year reads best.</div>`;
-  h += `<div class="rs-team card"><div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
+  h += `<div class="chart-top" style="margin:0 0 12px"><span class="muted" style="font-size:12px">Videos edited, counted per</span><div class="tabs-mini" id="rsg">${[['week','Week'],['month','Month'],['year','Year']].map(([v, l]) => `<button data-v="${v}" class="${rg === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+  h += `<div class="rs-team card"><div><span>Videos edited / editor</span><b>${team.inRange.toFixed(1)}</b><em class="muted" style="font-size:11px">in these dates</em></div>`; h += `<div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
     <div><span>Hook · Hold</span><b>${pct(team.agg.hook, 0)} · ${pct(team.agg.hold, 0)}</b></div><div><span>Spend per concept</span><b>${money(team.spc)}</b></div><div><span>Videos / editor / week</span><b>${team.perWeek.toFixed(1)}</b></div></div>`;
   h += '<div class="rs-grid">' + eds.map((e, idx) => {
     const tested = e.cs.filter(c => c.usd >= mk).length >= 2 ? e.cs.filter(c => c.usd >= mk) : e.cs.filter(c => c.sp > 0);
     const byR = tested.slice().sort((x, y) => y.r[S.model] - x.r[S.model]);
     const best = byR.slice(0, 3), worst = byR.length > 3 ? byR.slice(-3).reverse().filter(c => !best.includes(c)) : [];
-    const prods = {}; for (const c of e.cs) { const p = c.product || 'Other'; const o = prods[p] || (prods[p] = {sp:0, rev:0, n:0}); o.sp += c.sp; o.rev += revOf(c); o.n++; }
-    const pl = Object.entries(prods).sort((x, y) => y[1].sp - x[1].sp).slice(0, 5), pmax = pl.length ? pl[0][1].sp : 1;
+    const prods = {}, po = p => prods[p] || (prods[p] = {sp:0, rev:0, n:0, ed:0});
+    for (const c of e.cs) { const o = po(c.product || 'Other'); o.sp += c.sp; o.rev += revOf(c); o.n++; }
+    for (const v of e.mine) po(prodOf(v)).ed++;
+    const pl = Object.entries(prods).sort((x, y) => y[1].sp - x[1].sp || y[1].ed - x[1].ed).slice(0, 6), pmax = Math.max(1, ...pl.map(x => x[1].sp));
     const perWeek = e.wk.reduce((x, y) => x + y, 0) / weeks.length;
     return `<div class="card rs-card">
       <div class="rs-head"><div class="portrait sm"><span>${esc(initials(e.n))}</span></div><div style="min-width:0"><div class="rs-name">${esc(e.n)}</div>
@@ -722,13 +738,13 @@ function pReports() {
         ${stat('Hook rate', pct(e.a.hook, 0), chip(e.a.hook, team.agg.hook, 'pt'))}
         ${stat('Hold rate', pct(e.a.hold, 0), chip(e.a.hold, team.agg.hold, 'pt'))}
         ${stat('Link CTR', pct(e.a.lctr), chip(e.a.lctr, team.agg.lctr))}
-        ${stat('Videos / week', perWeek.toFixed(1), chip(perWeek, team.perWeek), 'last 12 weeks')}
+        ${stat('Videos edited', e.mix.total, chip(e.mix.total, team.inRange), `in these dates · ${perWeek.toFixed(1)}/week over 12 weeks`)}
       </div>
       <div class="rs-row">
-        <div><div class="rs-h">Videos delivered per week <small>last 12 weeks</small></div><div class="chart-wrap" style="height:120px"><canvas id="rsW${idx}"></canvas></div>
-          <div class="rs-h" style="margin-top:10px">Mix in these dates <small>${e.mix.total} videos</small></div>
+        <div><div class="rs-h">Videos edited per ${RGN} <small>${rg === 'week' ? 'last 12 weeks' : rg === 'month' ? 'since January' : 'by year'} · ${e.bk.reduce((x, y) => x + y, 0)} total</small></div><div class="chart-wrap" style="height:120px"><canvas id="rsW${idx}"></canvas></div>
+          <div class="rs-h" style="margin-top:10px">Mix of videos edited in these dates <small>${e.mix.total} videos</small></div>
           ${e.mix.total ? `<div class="ratio"><div class="rb">${CATS.map(([n, col]) => `<i style="width:${(share(e.mix, n) * 100).toFixed(1)}%;background:${col}"></i>`).join('')}</div><div class="rl">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n} <b>${pct(share(e.mix, n), 0)}</b> (${e.mix[n]})</span>`).join('')}</div></div>` : '<div class="muted" style="font-size:12px">None delivered in these dates</div>'}</div>
-        <div><div class="rs-h">By product <small>spend · ROAS</small></div>${pl.length ? pl.map(([p, o]) => `<div class="rs-p"><span>${esc(p)}</span><div class="bar"><i style="width:${(o.sp / pmax * 100).toFixed(0)}%"></i></div><b>${money(o.sp)}</b><b class="${rc(o.sp ? o.rev / o.sp : 0)}">${x2(o.sp ? o.rev / o.sp : 0)}</b></div>`).join('') : '<div class="muted" style="font-size:12px">No spend in these dates</div>'}</div>
+        <div><div class="rs-h">By product <small>in these dates</small></div>${pl.length ? '<div class="rs-p rs-ph"><span></span><em>edited</em><em>ads live</em><span></span><em>spend</em><em>ROAS</em></div>' + pl.map(([p, o]) => `<div class="rs-p"><span title="${esc(p)}">${esc(p)}</span><b>${o.ed}</b><b>${o.n}</b><div class="bar"><i style="width:${(o.sp / pmax * 100).toFixed(0)}%"></i></div><b>${o.sp ? money(o.sp) : '–'}</b><b class="${o.sp ? rc(o.rev / o.sp) : ''}">${o.sp ? x2(o.rev / o.sp) : '–'}</b></div>`).join('') : '<div class="muted" style="font-size:12px">Nothing edited or live in these dates</div>'}</div>
       </div>
       <div class="rs-row">
         <div><div class="rs-h">Best ads <small>highest ${MODELS[S.model]} ROAS</small></div>${best.map(mini).join('') || '<div class="muted" style="font-size:12px">No ads with spend</div>'}</div>
@@ -736,10 +752,11 @@ function pReports() {
       </div></div>`;
   }).join('') + '</div>';
   if (!eds.length) h += '<div class="empty">No editor activity in these dates.</div>';
+  afterRender.push(() => { const t = $('#rsg'); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S.rsg = bt.dataset.v; render(); } }; });
   afterRender.push(() => eds.forEach((e, idx) => {
-    charts['rs' + idx] = new Chart($('#rsW' + idx), {type:'bar', data:{labels:weeks.map(w => fmtD(w)), datasets:[
-      {type:'line', label:'Team average', data:weeks.map(() => +team.perWeek.toFixed(1)), borderColor:'#8a8a94', borderDash:[4, 4], borderWidth:1.5, pointRadius:0},
-      {label:'Videos', data:e.wk, backgroundColor:'#b38b33', borderRadius:3, maxBarThickness:18}]},
+    charts['rs' + idx] = new Chart($('#rsW' + idx), {type:'bar', data:{labels:bks.map(x => x.label), datasets:[
+      {type:'line', label:'Team average', data:team.bk.map(x => +x.toFixed(1)), borderColor:'#8a8a94', borderDash:[4, 4], borderWidth:1.5, pointRadius:rg === 'year' ? 3 : 0},
+      {label:'Videos edited', data:e.bk, backgroundColor:'#b38b33', borderRadius:3, maxBarThickness:rg === 'year' ? 60 : 18}]},
       options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
         scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:6}}, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', precision:0, font:{size:10}}}}}});
   }));
