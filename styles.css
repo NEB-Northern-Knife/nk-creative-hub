@@ -451,7 +451,7 @@ td .bar{display:inline-block;height:6px;border-radius:3px;background:var(--gold2
 .ins-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
 .ins-h h3{margin:0;font-family:var(--display);font-weight:400;letter-spacing:.05em;font-size:22px}
 .ins-h span{font-size:11.5px}
-.ins-row{display:grid;grid-template-columns:150px 1fr 54px 96px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.ins-row{display:grid;grid-template-columns:190px 1fr 54px 96px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
 .ins-l{min-width:0}.ins-l b{display:block;font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ins-l span{font-size:11px;color:var(--muted)}
 .ins-bar{position:relative;height:26px;background:var(--panel2);border-radius:6px;overflow:hidden}
@@ -461,3 +461,18 @@ td .bar{display:inline-block;height:6px;border-radius:3px;background:var(--gold2
 .ins-t{display:flex;gap:3px;justify-content:flex-end}
 .ins-t img{width:30px;height:30px;border-radius:5px;object-fit:cover;cursor:pointer;background:var(--panel2)}
 @media (max-width:700px){.ins-grid{grid-template-columns:1fr}.ins-row{grid-template-columns:110px 1fr 46px}.ins-t{display:none}}
+.vm{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}
+.vm div{background:var(--panel2);border-radius:8px;padding:5px 4px;text-align:center}
+.vm span{display:block;font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
+.vm b{font-size:13.5px;font-weight:600}
+.ret{display:grid;grid-template-columns:120px 1fr 64px;gap:10px;align-items:center;padding:5px 0;font-size:12.5px}
+.ret b{text-align:right}
+.ret-bar{height:14px;background:var(--panel2);border-radius:7px;overflow:hidden}
+.ret-bar i{display:block;height:100%;background:linear-gradient(90deg,#8c6f3f,#c7b48b);border-radius:7px}
+.ratio{margin-top:10px}
+.rb{display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--panel2);gap:2px}
+.rb i{display:block;height:100%}
+.rl{display:flex;flex-direction:column;gap:3px;margin-top:8px;font-size:12px;color:var(--text2)}
+.rl span{display:flex;align-items:center;gap:6px}
+.rl span i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.rl b{color:var(--text);font-weight:600}
