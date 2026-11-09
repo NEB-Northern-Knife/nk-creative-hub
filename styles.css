@@ -478,3 +478,6 @@ td .bar{display:inline-block;height:6px;border-radius:3px;background:var(--gold2
 .rl span{display:flex;align-items:center;gap:6px}
 .rl span i{width:10px;height:10px;border-radius:2px;display:inline-block}
 .rl b{color:var(--text);font-weight:600}
+
+.charts3{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:1250px){.charts3{grid-template-columns:1fr}}
