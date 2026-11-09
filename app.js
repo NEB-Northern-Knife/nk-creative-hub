@@ -705,7 +705,8 @@ function pProduction() {
       ${card2('Videos', lm2, vm(lm2), '')}${card2('Statics', lm2, sm(lm2), '')}</div>`; })()}
   <div class="chart-top" style="margin-top:22px"><h2 class="sec" style="margin:0">${g === 'month' ? 'Month by month' : 'Week by week'} <small>${g === 'month' ? 'since January' : 'last 12 weeks'}</small></h2>
     <div class="tabs-mini" id="pmode">${[['n','Count'],['p','% mix']].map(([v, l]) => `<button data-v="${v}" class="${(S.pmode || 'n') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-  <div class="grid charts" style="margin-top:10px">
+  <div class="grid charts3" style="margin-top:10px">
+    <div class="card chart-card"><h3>Total concepts</h3><div class="sub">videos + statics</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chT"></canvas></div></div>
     <div class="card chart-card"><h3>Videos</h3><div class="sub">CREATIVES sheet · ${g === 'month' ? 'month section' : 'date sent'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chV"></canvas></div></div>
     <div class="card chart-card"><h3>Statics</h3><div class="sub">Figma · ${g === 'month' ? 'Approved + Tested + Winners on each month page' : 'by the date in the ad name'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chS"></canvas></div></div>
   </div>`;
@@ -714,15 +715,10 @@ function pProduction() {
   else { buckets = []; let m = monday(addD(D.today, -7 * 11)); while (m <= D.today) { const e = addD(m, 6); buckets.push({key:m, label:fmtD(m) + (e > D.today ? '*' : ''), a:m, b:e, sel:m <= b && e >= a}); m = addD(m, 7); } }
   for (const bk of buckets) { bk.v = cnt(vidsIn(bk.a, bk.b, g)); bk.s = cnt(staticsIn(bk.a, bk.b, g)); bk.t = both(bk.v, bk.s); }
   const row = (lbl, o, sel) => `<tr style="${sel ? 'background:#c7b48b12' : ''}"><td>${lbl}${sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${o.total}</b></td><td>${o.hooks || '–'}</td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td></tr>`;
-  h += `<div class="grid charts" style="margin-top:14px">
+  h += `<div class="grid charts3" style="margin-top:14px">
+    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Concepts</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.t, hooks:0}, bk.sel)).join('')}</tbody></table></div>
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Videos</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, bk.v, bk.sel)).join('')}</tbody></table></div>
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Statics</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.s, hooks:0}, bk.sel)).join('')}</tbody></table></div>
-  </div>`;
-  const trow = bk => `<tr style="${bk.sel ? 'background:#c7b48b12' : ''}"><td>${bk.label}${bk.sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${bk.t.total}</b></td><td>${bk.v.total}</td><td>${bk.s.total}</td>${CATS.map(([n]) => `<td>${bk.t[n]} <span class="muted">${pct(share(bk.t, n), 0)}</span></td>`).join('')}</tr>`;
-  h += `<h2 class="sec" style="margin-top:22px">Videos + statics combined <small>every concept we test, both formats</small></h2>
-  <div class="grid charts" style="margin-top:10px">
-    <div class="card chart-card"><h3>Concepts tested</h3><div class="sub">videos + statics · ${g === 'month' ? 'by month' : 'by week'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chT"></canvas></div></div>
-    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Total</th><th>Videos</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(trow).join('')}</tbody></table></div>
   </div>`;
   const eds = {}, vv = vidsIn(a, b, g);
   const blank = () => ({n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0, total:0});
