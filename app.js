@@ -13,19 +13,11 @@ let D = null; // decrypted data
 const S = {page:'hq', week:null, market:'ALL', model:'fc', cur:'USD', min:300, sort:'roas', q:'', board:'editors', ins:'product'};
 const charts = {};
 
-/* ---------------- decrypt ---------------- */
-const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
-async function unlock(pw) {
-  const res = await fetch('data/hub.enc.json', {cache: 'no-store'});
+/* ---------------- load ---------------- */
+async function load() {
+  const res = await fetch('data/hub.json', {cache: 'no-store'});
   if (!res.ok) throw new Error('Data file missing (' + res.status + ')');
-  const box = await res.json();
-  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']);
-  const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt:b64(box.salt), iterations:box.iter, hash:'SHA-256'}, base, {name:'AES-GCM', length:256}, false, ['decrypt']);
-  let plain;
-  try { plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64(box.iv)}, key, b64(box.ct)); }
-  catch (e) { throw new Error('Wrong password'); }
-  const stream = new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'));
-  return JSON.parse(await new Response(stream).text());
+  return res.json();
 }
 
 /* ---------------- money / format ---------------- */
@@ -182,7 +174,6 @@ function buildShell() {
   const mi = $('#cMin'); mi.value = S.min; $('#cMinV').textContent = '$' + S.min;
   mi.oninput = () => { S.min = +mi.value; $('#cMinV').textContent = '$' + S.min; render(); };
   $('#genAt').textContent = 'Synced ' + new Date(D.generated).toLocaleString('en-GB', {dateStyle:'medium', timeStyle:'short'});
-  $('#lockBtn').onclick = () => { LS('nkhub.pw', null); location.reload(); };
   $('#shareBtn').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(location.href); $('#shareBtn').textContent = 'Copied ✓'; setTimeout(() => $('#shareBtn').textContent = 'Copy link to this view', 1500); };
   $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
   $('#scrim').onclick = closeDrawer;
@@ -569,19 +560,14 @@ function closeDrawer() { $('#drawer').classList.remove('open'); $('#scrim').clas
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
 
 /* ---------------- boot ---------------- */
-async function start(pw, remember) {
-  D = await unlock(pw);
-  if (remember) LS('nkhub.pw', pw);
+async function start() {
+  D = await load();
+  LS('nkhub.pw', null);
   const firstComplete = D.weeks.find(w => !w.partial) || D.weeks[0];
   S.week = firstComplete.start;
   readHash();
   $('#lock').classList.add('hidden'); $('#app').classList.remove('hidden');
   buildShell(); render();
 }
-$('#lockForm').onsubmit = async e => {
-  e.preventDefault(); $('#lockErr').textContent = 'Unlocking...';
-  try { await start($('#pw').value, $('#remember').checked); } catch (err) { $('#lockErr').textContent = err.message; }
-};
-const saved = LS('nkhub.pw');
-if (saved) start(saved, true).catch(() => { LS('nkhub.pw', null); $('#lockErr').textContent = ''; });
+start().catch(err => { $('#lockErr').textContent = 'Could not load data: ' + err.message; });
 })();
