@@ -681,6 +681,8 @@ function pProduction() {
   const partial = g === 'month' && b >= D.today; // month to date: compare the same days, by date
   const cp = cnt(vidsIn(ca, cb, partial ? 'week' : g)), sp = cnt(staticsIn(ca, cb, partial ? 'week' : g));
   const cNow = partial ? cnt(vidsIn(a, b, 'week')) : c, sNow = partial ? cnt(staticsIn(a, b, 'week')) : s;
+  const both = (x, y) => ({total:x.total + y.total, hooks:0, 'Net New':x['Net New'] + y['Net New'], Iteration:x.Iteration + y.Iteration, Adaptation:x.Adaptation + y.Adaptation});
+  const t = both(c, s), tNow = both(cNow, sNow), tp = both(cp, sp);
   const inprod = PR.in_production || [], inTot = inprod.reduce((x, r) => x + r.n, 0);
   const byStatus = st => inprod.filter(r => r.status === st).reduce((x, r) => x + r.n, 0);
   const label = g === 'month' ? monthsIn(a, b).map(MONL).join(' + ') : `${fmtD(a)} – ${fmtD(b)}`;
@@ -690,6 +692,7 @@ function pProduction() {
     ${kp('Videos delivered', int(c.total), delta(cNow.total, cp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">${int(c.hooks)} files with hooks</span>`)}
     ${kp('Video mix', `${pct(share(c, 'Net New'), 0)} <span class="muted" style="font-size:16px">net new</span>`, mix(c), `<span class="muted">${c['Net New']} NN · ${c.Iteration} Ite · ${c.Adaptation} Adapt</span>`)}
     ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
+    ${kp('Concepts tested', int(t.total), delta(tNow.total, tp.total), `<span class="muted">videos + statics · ${pct(share(t, 'Net New'), 0)} net new</span>`)}
     ${kp('Videos in production', int(inTot), `<span class="muted">${byStatus('Assigned to Editor')} assigned to editor · ${byStatus('Ready for visuals')} ready for visuals</span>`, '<span class="muted">live count from Notion</span>')}
   </div>
   ${(() => { const tm = D.today.slice(0, 7), lm = addM(tm, -1), lm2 = addM(tm, -2);
@@ -709,11 +712,17 @@ function pProduction() {
   let buckets;
   if (g === 'month') { buckets = monthsIn('2026-01-01', D.today).map(m => ({key:m, label:MON(m), a:m + '-01', b:m + '-31', sel:monthsIn(a, b).includes(m)})); }
   else { buckets = []; let m = monday(addD(D.today, -7 * 11)); while (m <= D.today) { const e = addD(m, 6); buckets.push({key:m, label:fmtD(m) + (e > D.today ? '*' : ''), a:m, b:e, sel:m <= b && e >= a}); m = addD(m, 7); } }
-  for (const bk of buckets) { bk.v = cnt(vidsIn(bk.a, bk.b, g)); bk.s = cnt(staticsIn(bk.a, bk.b, g)); }
+  for (const bk of buckets) { bk.v = cnt(vidsIn(bk.a, bk.b, g)); bk.s = cnt(staticsIn(bk.a, bk.b, g)); bk.t = both(bk.v, bk.s); }
   const row = (lbl, o, sel) => `<tr style="${sel ? 'background:#c7b48b12' : ''}"><td>${lbl}${sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${o.total}</b></td><td>${o.hooks || '–'}</td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td></tr>`;
   h += `<div class="grid charts" style="margin-top:14px">
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Videos</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, bk.v, bk.sel)).join('')}</tbody></table></div>
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Statics</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.s, hooks:0}, bk.sel)).join('')}</tbody></table></div>
+  </div>`;
+  const trow = bk => `<tr style="${bk.sel ? 'background:#c7b48b12' : ''}"><td>${bk.label}${bk.sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${bk.t.total}</b></td><td>${bk.v.total}</td><td>${bk.s.total}</td>${CATS.map(([n]) => `<td>${bk.t[n]} <span class="muted">${pct(share(bk.t, n), 0)}</span></td>`).join('')}</tr>`;
+  h += `<h2 class="sec" style="margin-top:22px">Videos + statics combined <small>every concept we test, both formats</small></h2>
+  <div class="grid charts" style="margin-top:10px">
+    <div class="card chart-card"><h3>Concepts tested</h3><div class="sub">videos + statics · ${g === 'month' ? 'by month' : 'by week'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chT"></canvas></div></div>
+    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Total</th><th>Videos</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(trow).join('')}</tbody></table></div>
   </div>`;
   const eds = {}, vv = vidsIn(a, b, g);
   const blank = () => ({n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0, total:0});
@@ -739,6 +748,7 @@ function pProduction() {
       backgroundColor:buckets.map(bk => bk.sel ? col : col + '66'), borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}));
     charts.v = new Chart($('#chV'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('v')}, options:opt});
     charts.s = new Chart($('#chS'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('s')}, options:opt});
+    charts.t = new Chart($('#chT'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('t')}, options:opt});
   });
   return h;
 }
