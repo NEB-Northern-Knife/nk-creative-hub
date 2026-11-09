@@ -36,9 +36,10 @@ const addD = (s, n) => { const d = P(s); d.setUTCDate(d.getUTCDate() + n); retur
 const monday = s => { const d = P(s); const wd = (d.getUTCDay() + 6) % 7; return addD(s, -wd); };
 const nDays = (a, b) => Math.round((P(b) - P(a)) / 864e5) + 1;
 const fmtD = s => P(s).toLocaleDateString('en-GB', {day:'numeric', month:'short', timeZone:'UTC'});
-const PRESETS = [['week','This week'],['lastweek','Last week'],['month','This month'],['lastmonth','Last month'],['7d','Last 7 days'],['30d','Last 30 days']];
+const PRESETS = [['week','This week'],['lastweek','Last week'],['month','This month'],['lastmonth','Last month'],['7d','Last 7 days'],['30d','Last 30 days'],['year','This year']];
+const MIN_DAY = '2026-01-01';
 function presetRange(p) {
-  const t = D.today, first = D.days[0];
+  const t = D.today, first = MIN_DAY;
   const clip = s => s < first ? first : s;
   if (p === 'week') return [monday(t), t];
   if (p === 'lastweek') { const m = addD(monday(t), -7); return [m, addD(m, 6)]; }
@@ -46,6 +47,7 @@ function presetRange(p) {
   if (p === 'lastmonth') { const m1 = t.slice(0, 8) + '01'; const e = addD(m1, -1); return [clip(e.slice(0, 8) + '01'), e]; }
   if (p === '7d') return [clip(addD(t, -6)), t];
   if (p === '30d') return [clip(addD(t, -29)), t];
+  if (p === 'year') return [t.slice(0, 4) + '-01-01', t];
   return [S.from, S.to];
 }
 function compareRange(a, b) {
@@ -262,15 +264,62 @@ function readHash() {
 function applyPreset() { if (S.preset !== 'custom') [S.from, S.to] = presetRange(S.preset); }
 function rangeBar() {
   const [ca, cb] = compareRange(S.from, S.to);
+  const early = S.from < D.days[0] && S.page !== 'production' ? ` · <span class="bad">ad data in the hub starts ${fmtD(D.days[0])}</span>` : '';
   return `<div class="rangebar"><div class="seg" id="rPre">${PRESETS.map(([v, l]) => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <input type="date" id="rFrom" value="${S.from}" min="${D.days[0]}" max="${D.today}"> <span class="muted">→</span> <input type="date" id="rTo" value="${S.to}" min="${D.days[0]}" max="${D.today}">
-    <span class="cmp">${fmtD(S.from)} – ${fmtD(S.to)} · ${S.market === 'ALL' ? 'all markets' : S.market} · compared with ${fmtD(ca)} – ${fmtD(cb)}</span></div>`;
+    <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
+    <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · compared with ${fmtD(ca)} – ${fmtD(cb)}${early}</span></div>`;
 }
+const DP = {a:null, b:null, hover:null, view:null};
+function ym(s) { return s.slice(0, 7); }
+function addM(m, n) { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); }
+function dpMonth(m) {
+  const first = P(m + '-01'), off = (first.getUTCDay() + 6) % 7, days = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  let cells = ['M','T','W','T','F','S','S'].map(x => `<div class="wd">${x}</div>`).join('');
+  for (let i = 0; i < off; i++) cells += '<div class="d out"></div>';
+  const lo = DP.a, hi = DP.b || (DP.a && DP.hover ? DP.hover : null);
+  const [r0, r1] = lo && hi ? (lo <= hi ? [lo, hi] : [hi, lo]) : [lo, lo];
+  for (let d = 1; d <= days; d++) {
+    const ds = `${m}-${String(d).padStart(2, '0')}`, dis = ds < MIN_DAY || ds > D.today;
+    const cls = ['d', dis ? 'dis' : '', ds === r0 ? 's' : '', ds === r1 ? 'e' : '', r0 && r1 && ds > r0 && ds < r1 ? 'in' : '', ds === D.today ? 'today' : ''].join(' ');
+    cells += `<div class="${cls}" data-d="${dis ? '' : ds}">${d}</div>`;
+  }
+  return `<div class="dp-m"><h5>${P(m + '-01').toLocaleDateString('en-GB', {month:'long', year:'numeric', timeZone:'UTC'})}</h5><div class="dp-g">${cells}</div></div>`;
+}
+function dpDraw() {
+  const el = $('#dp'), right = addM(DP.view, 1);
+  const txt = DP.a ? (DP.b ? `${fmtD(DP.a <= DP.b ? DP.a : DP.b)} – ${fmtD(DP.a <= DP.b ? DP.b : DP.a)} · ${nDays(DP.a <= DP.b ? DP.a : DP.b, DP.a <= DP.b ? DP.b : DP.a)} days` : `${fmtD(DP.a)} – pick an end date`) : 'Pick a start date';
+  el.innerHTML = `<div class="dp-pre">${PRESETS.map(([v, l]) => `<button data-p="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="dp-main"><div class="dp-nav"><button id="dpPrev" ${DP.view <= ym(MIN_DAY) ? 'disabled' : ''}>‹</button><button id="dpNext" ${right >= ym(D.today) ? 'disabled' : ''}>›</button></div>
+    <div class="dp-months">${dpMonth(DP.view)}${dpMonth(right)}</div>
+    <div class="dp-foot"><span>${txt}</span><span><button class="btn ghost sm" id="dpCancel">Cancel</button> <button class="btn sm" id="dpApply" ${DP.a && DP.b ? '' : 'disabled style="opacity:.5"'}>Apply</button></span></div></div>`;
+  el.querySelectorAll('[data-p]').forEach(bt => bt.onclick = () => { S.preset = bt.dataset.p; applyPreset(); dpClose(); render(); });
+  el.querySelectorAll('.d[data-d]').forEach(c => {
+    if (!c.dataset.d) return;
+    c.onclick = () => { const d = c.dataset.d; if (!DP.a || DP.b) { DP.a = d; DP.b = null; } else { DP.b = d; } dpDraw(); };
+    c.onmouseenter = () => { if (DP.a && !DP.b) { DP.hover = c.dataset.d; dpDraw(); } };
+  });
+  $('#dpPrev').onclick = () => { DP.view = addM(DP.view, -1); dpDraw(); };
+  $('#dpNext').onclick = () => { DP.view = addM(DP.view, 1); dpDraw(); };
+  $('#dpCancel').onclick = dpClose;
+  $('#dpApply').onclick = () => { if (!DP.a || !DP.b) return; let [x, y] = DP.a <= DP.b ? [DP.a, DP.b] : [DP.b, DP.a];
+    const match = PRESETS.find(([v]) => { const [p0, p1] = presetRange(v); return p0 === x && p1 === y; });
+    S.preset = match ? match[0] : 'custom'; S.from = x; S.to = y; dpClose(); render(); };
+}
+function dpOpen(btn) {
+  let el = $('#dp'); if (!el) { el = document.createElement('div'); el.id = 'dp'; document.body.appendChild(el); }
+  DP.a = S.from; DP.b = S.to; DP.hover = null; DP.view = addM(ym(S.to), -1); if (DP.view < ym(MIN_DAY)) DP.view = ym(MIN_DAY);
+  dpDraw(); el.classList.add('open');
+  const r = btn.getBoundingClientRect(), w = el.offsetWidth;
+  el.style.top = Math.min(r.bottom + 8, innerHeight - el.offsetHeight - 8) + 'px';
+  el.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
+  setTimeout(() => document.addEventListener('mousedown', dpOutside), 0);
+}
+function dpOutside(e) { const el = $('#dp'); if (el && !el.contains(e.target) && !e.target.closest('#dpBtn')) dpClose(); }
+function dpClose() { const el = $('#dp'); if (el) el.classList.remove('open'); document.removeEventListener('mousedown', dpOutside); }
 function wireRange() {
   const pre = $('#rPre'); if (!pre) return;
   pre.onclick = e => { const b = e.target.closest('button'); if (!b) return; S.preset = b.dataset.v; applyPreset(); render(); };
-  const upd = () => { let a = $('#rFrom').value, b = $('#rTo').value; if (!a || !b) return; if (a > b) [a, b] = [b, a]; S.preset = 'custom'; S.from = a; S.to = b; render(); };
-  $('#rFrom').onchange = upd; $('#rTo').onchange = upd;
+  $('#dpBtn').onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open')) dpClose(); else dpOpen(e.currentTarget); };
 }
 function head(kicker, title) {
   return `<div class="page-head"><div><div class="kicker">${kicker}</div><h1>${title}</h1></div>
@@ -326,12 +375,17 @@ function pHQ() {
   const o = kpis(a, b), p = kpis(ca, cb);
   const kp = (lbl, val, d, cls = '', tip = '') => `<div class="card kpi"><div class="lbl" title="${esc(tip)}">${lbl}</div><div class="val num ${cls}">${val}</div><div class="delta">${d}</div></div>`;
   const cs = concepts(a, b), mk = minK();
-  const best = kind => cs.filter(c => c.kind === kind && c.sp >= mk).sort((x, y) => y.r[S.model] - x.r[S.model])[0];
-  const bv = best('VID'), bs = best('IMG');
+  const top = kind => cs.filter(c => c.kind === kind).sort((x, y) => y.sp - x.sp)[0];
+  const bv = top('VID'), bs = top('IMG');
   const ed = board(a, b, 'editors')[0], de = board(a, b, 'designers')[0], stg = board(a, b, 'strategists')[0];
-  const champ = (img, t, n, s, attrs) => `<div class="card hl" ${attrs}>${img}<div style="min-width:0"><div class="t">${t}</div><div class="b">${n}</div><div class="s">${s}</div></div></div>`;
-  const thumb = c => c && c.thumb ? `<img src="${esc(c.thumb)}" alt="">` : '<div class="ic">🎬</div>';
-  const sh = n => `<div class="ic" style="font-family:Cinzel,serif;font-weight:800;color:var(--gold)">${esc(initials(n))}</div>`;
+  const adCard = (c, t) => !c ? '' : `<div class="card champ" data-c="${esc(c.key)}"><div class="ch-thumb" style="background-image:url('${esc(c.thumb || '')}')">${c.kind === 'VID' && c.video ? '<div class="play"></div>' : ''}<span class="ch-tag">${t}</span></div>
+    <div class="ch-body"><div class="ch-id">${esc(c.id || '')}${c.product ? ' · ' + esc(c.product) : ''}</div><div class="ch-name">${esc(c.title)}</div>
+    <div class="ch-stats"><div><span>Spend</span><b>${money(c.sp)}</b></div><div><span>ROAS</span><b class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</b></div><div><span>Revenue</span><b>${money(revOf(c))}</b></div></div>
+    <div class="ch-who">${esc([c.editor || c.designer, c.strategist].filter(Boolean).join(' · '))}</div></div></div>`;
+  const pCard = (p, t, bt) => !p ? '' : `<div class="card champ" data-go="board" data-b="${bt}"><div class="ch-shield"><div class="ch-av">${esc(initials(p.name))}</div><span class="ch-tag">${t}</span></div>
+    <div class="ch-body"><div class="ch-id">${int(p.xp)} XP</div><div class="ch-name">${esc(p.name)}</div>
+    <div class="ch-stats"><div><span>Spend</span><b>${money(p.sp)}</b></div><div><span>ROAS</span><b class="${rc(p.r[S.model])}">${x2(p.r[S.model])}</b></div><div><span>Revenue</span><b>${money(p.rev)}</b></div></div>
+    <div class="ch-who">${p.concepts.length} concepts live · ${p.hits} hits</div></div></div>`;
   let h = head('Performance & growth', 'HQ overview');
   h += `<div class="grid kpis hero">
     ${kp('Revenue', money(o.sales), delta(o.sales, p.sales))}
@@ -348,14 +402,8 @@ function pHQ() {
     ${UNL ? kp('Orders', int(o.orders), delta(o.orders, p.orders)) + kp('AOV', money(o.aov, 0), delta(o.aov, p.aov)) + kp('New-customer CPA', money(o.ncCpa, 0), delta(o.ncCpa, p.ncCpa, true)) : ''}
   </div>${UNL ? `<div class="note">Net profit is Triple Whale's, with Australia's custom expenses added back (${money(o.addBack)} in this range). <a href="#" id="relock">Lock again</a></div>` : '<div class="note">Orders, AOV, new-customer CPA and net profit unlock with the password.</div>'}</div>
   <button class="btn ghost sm more-btn" id="moreBtn">${S.more ? 'Show less' : 'Show all numbers'}</button>
-  <h2 class="sec">Champions <small>${fmtD(a)} – ${fmtD(b)}</small></h2>
-  <div class="grid champs">
-    ${bv ? champ(thumb(bv), '🏆 Best video', esc((bv.id || '') + ' ' + bv.title), `<span class="${rc(bv.r[S.model])}">${x2(bv.r[S.model])}</span> ${MODELS[S.model]} · ${money(bv.sp)}`, `data-c="${esc(bv.key)}"`) : ''}
-    ${bs ? champ(thumb(bs), '🖼 Best static', esc((bs.id || '') + ' ' + bs.title), `<span class="${rc(bs.r[S.model])}">${x2(bs.r[S.model])}</span> ${MODELS[S.model]} · ${money(bs.sp)}`, `data-c="${esc(bs.key)}"`) : ''}
-    ${ed ? champ(sh(ed.name), '✂ Top editor', esc(ed.name), `${int(ed.xp)} XP`, 'data-go="board" data-b="editors"') : ''}
-    ${de ? champ(sh(de.name), '🎨 Top designer', esc(de.name), `${int(de.xp)} XP`, 'data-go="board" data-b="designers"') : ''}
-    ${stg ? champ(sh(stg.name), '♟ Top strategist', esc(stg.name), `${int(stg.xp)} XP`, 'data-go="board" data-b="strategists"') : ''}
-  </div>
+  <h2 class="sec">Champions <small>${fmtD(a)} – ${fmtD(b)} · ads ranked by spend</small></h2>
+  <div class="grid champs">${adCard(bv, '🏆 Top video')}${adCard(bs, '🖼 Top static')}${pCard(ed, '✂ Top editor', 'editors')}${pCard(de, '🎨 Top designer', 'designers')}${pCard(stg, '♟ Top strategist', 'strategists')}</div>
   <h2 class="sec">Markets</h2>${marketTable(a, b, ca, cb)}
   <h2 class="sec">Trend <small>by week, ${S.market === 'ALL' ? 'all markets' : S.market}</small></h2>
   <div class="card chart-card"><div class="chart-top"><div class="tabs-mini" id="trTabs">${[['rev','Revenue'],['sp','Spend'],['roas','ROAS']].concat(UNL ? [['profit','Net profit']] : []).map(([v, l]) => `<button data-v="${v}" class="${S.trend === v ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -537,53 +585,79 @@ function pBoard() {
 /* ---------------- production ---------------- */
 let PR = null;
 const CATS = [['Net New','#b38b33'],['Iteration','#3a80c4'],['Adaptation','#cf4640']];
+const MON = s => P(s + '-01').toLocaleDateString('en-GB', {month:'short', timeZone:'UTC'});
+const MONL = s => P(s + '-01').toLocaleDateString('en-GB', {month:'long', year:'numeric', timeZone:'UTC'});
+function gran() { if (['week','lastweek','7d'].includes(S.preset)) return 'week'; if (S.preset === 'custom') return nDays(S.from, S.to) <= 14 ? 'week' : 'month'; return 'month'; }
+function monthsIn(a, b) { const out = []; let m = a.slice(0, 7); while (m <= b.slice(0, 7)) { out.push(m); const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + 1); m = iso(d).slice(0, 7); } return out; }
+function vidsIn(a, b, g) { if (g === 'month') { const ms = monthsIn(a, b); return PR.videos.filter(v => ms.includes(v.m)); } return PR.videos.filter(v => v.d >= a && v.d <= b); }
+function staticsIn(a, b, g) {
+  if (g === 'month') { const ms = monthsIn(a, b); return (PR.statics || []).filter(x => ms.includes(x.month)).flatMap(x => x.items); }
+  const seen = new Set(), out = [];
+  for (const x of PR.statics || []) for (const it of x.items) if (it.d && it.d >= a && it.d <= b && !seen.has(it.id)) { seen.add(it.id); out.push(it); }
+  return out;
+}
+const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; } return o; };
+const share = (o, kk) => o.total ? o[kk] / o.total : 0;
+const mix = o => `<span style="color:#d9b45a">${pct(share(o, 'Net New'), 0)} NN</span> · <span style="color:#7fb2e8">${pct(share(o, 'Iteration'), 0)} Ite</span> · <span style="color:#ff8a80">${pct(share(o, 'Adaptation'), 0)} Adapt</span>`;
 function pProduction() {
-  const [a, b] = R();
+  const [a, b] = R(), g = gran();
   let h = head('How much we make', 'Production');
   if (!PR) return h + '<div class="empty">Production data not loaded yet.</div>';
-  const vids = PR.videos.filter(v => v.d >= a && v.d <= b);
-  const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; } return o; };
-  const c = cnt(vids), [ca, cb] = compareRange(a, b), cp = cnt(PR.videos.filter(v => v.d >= ca && v.d <= cb));
-  const inprod = PR.in_production || [], inTot = inprod.reduce((s, r) => s + r.n, 0);
-  const byStatus = st => inprod.filter(r => r.status === st).reduce((s, r) => s + r.n, 0);
-  const months = (PR.statics || []).filter(m => m.month >= a.slice(0, 7) && m.month <= b.slice(0, 7));
-  const stTot = months.reduce((s, m) => s + m.count, 0);
-  const nnPct = c.total ? c['Net New'] / c.total : 0, nnPrev = cp.total ? cp['Net New'] / cp.total : 0;
-  const kp = (lbl, val, d, sub = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="delta">${d}${sub}</div></div>`;
-  h += `<div class="grid kpis hero">
-    ${kp('Videos delivered', int(c.total), delta(c.total, cp.total), ` <span class="muted">· ${int(c.hooks)} files with hooks</span>`)}
-    ${kp('Net new vs iteration', `${int(c['Net New'])} <span class="muted" style="font-size:18px">/</span> ${int(c.Iteration + c.Adaptation)}`, `<span class="muted">${pct(nnPct, 0)} net new</span> ${delta(nnPct, nnPrev)}`)}
-    ${kp('Videos in production', int(inTot), `<span class="muted">${byStatus('Assigned to Editor')} assigned to editor · ${byStatus('Ready for visuals')} ready for visuals</span>`)}
-    ${kp('Statics approved', int(stTot), `<span class="muted">${months.map(m => P(m.month + '-01').toLocaleDateString('en-GB', {month:'long', timeZone:'UTC'})).join(', ') || 'no month in range'} · Figma</span>`)}
+  const [ca, cb] = compareRange(a, b);
+  const c = cnt(vidsIn(a, b, g)), s = cnt(staticsIn(a, b, g));
+  const partial = g === 'month' && b >= D.today; // month to date: compare the same days, by date
+  const cp = cnt(vidsIn(ca, cb, partial ? 'week' : g)), sp = cnt(staticsIn(ca, cb, partial ? 'week' : g));
+  const cNow = partial ? cnt(vidsIn(a, b, 'week')) : c, sNow = partial ? cnt(staticsIn(a, b, 'week')) : s;
+  const inprod = PR.in_production || [], inTot = inprod.reduce((x, r) => x + r.n, 0);
+  const byStatus = st => inprod.filter(r => r.status === st).reduce((x, r) => x + r.n, 0);
+  const label = g === 'month' ? monthsIn(a, b).map(MONL).join(' + ') : `${fmtD(a)} – ${fmtD(b)}`;
+  const kp = (lbl, val, d, sub = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="delta">${d}</div>${sub ? `<div class="delta" style="margin-top:6px">${sub}</div>` : ''}</div>`;
+  h += `<div class="note" style="margin:-8px 0 14px">Showing <b style="color:var(--text)">${g === 'month' ? 'months' : 'weeks'}</b>: ${esc(label)}. Pick a week preset for weekly numbers, a month preset for monthly numbers.</div>
+  <div class="grid kpis hero">
+    ${kp('Videos delivered', int(c.total), delta(cNow.total, cp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">${int(c.hooks)} files with hooks</span>`)}
+    ${kp('Video mix', `${pct(share(c, 'Net New'), 0)} <span class="muted" style="font-size:16px">net new</span>`, mix(c), `<span class="muted">${c['Net New']} NN · ${c.Iteration} Ite · ${c.Adaptation} Adapt</span>`)}
+    ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
+    ${kp('Videos in production', int(inTot), `<span class="muted">${byStatus('Assigned to Editor')} assigned to editor · ${byStatus('Ready for visuals')} ready for visuals</span>`, '<span class="muted">live count from Notion</span>')}
   </div>
-  <div class="note">Videos: CREATIVES sheet (date sent). In production: Notion Evergreen Video, live count now. Statics: Figma "Meta Square Ads - Approved" per month page. Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>
-  <h2 class="sec">Videos per week <small>Net New · Iteration · Adaptation</small></h2>
-  <div class="card chart-card"><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:260px"><canvas id="chPw"></canvas></div><div class="note">Current week still running (*).</div></div>`;
-  const weeks = []; let m = monday(addD(D.today, -7 * 11));
-  while (m <= D.today) { const e = addD(m, 6); const ws = PR.videos.filter(v => v.d >= m && v.d <= e); weeks.push({m, e, part:e > D.today, ...cnt(ws)}); m = addD(m, 7); }
-  h += `<div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Week</th><th>Videos</th><th>Files (hooks)</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>Net new %</th></tr></thead><tbody>
-    ${weeks.slice().reverse().map(w => `<tr><td>${fmtD(w.m)} – ${fmtD(w.e > D.today ? D.today : w.e)}${w.part ? ' *' : ''}</td><td><b>${w.total}</b></td><td>${w.hooks}</td><td>${w['Net New']}</td><td>${w.Iteration}</td><td>${w.Adaptation}</td><td>${w.total ? pct(w['Net New'] / w.total, 0) : '–'}</td></tr>`).join('')}
-  </tbody></table></div>`;
-  const eds = {};
-  for (const v of vids) { const kk = v.editor || 'Unknown'; const o = eds[kk] || (eds[kk] = {n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0}); o.n++; o.hooks += v.hooks || 0; if (o[v.cat] !== undefined) o[v.cat]++; }
-  for (const r of inprod) { const kk = r.editor || 'Unassigned'; const o = eds[kk] || (eds[kk] = {n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0}); o.prod += r.n; }
-  h += `<h2 class="sec">By editor <small>${fmtD(a)} – ${fmtD(b)} · in production = now</small></h2><div class="tbl-wrap"><table><thead><tr><th>Editor</th><th>Delivered</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>In production</th></tr></thead><tbody>
-    ${Object.entries(eds).sort((x, y) => y[1].n - x[1].n || y[1].prod - x[1].prod).map(([n, o]) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o.hooks}</td><td>${o['Net New']}</td><td>${o.Iteration}</td><td>${o.Adaptation}</td><td>${o.prod}</td></tr>`).join('')}
-  </tbody></table></div>`;
-  const st = (PR.statics || []).filter(x => x.count > 0);
+  <div class="chart-top" style="margin-top:22px"><h2 class="sec" style="margin:0">${g === 'month' ? 'Month by month' : 'Week by week'} <small>${g === 'month' ? 'since January' : 'last 12 weeks'}</small></h2>
+    <div class="tabs-mini" id="pmode">${[['n','Count'],['p','% mix']].map(([v, l]) => `<button data-v="${v}" class="${(S.pmode || 'n') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+  <div class="grid charts" style="margin-top:10px">
+    <div class="card chart-card"><h3>Videos</h3><div class="sub">CREATIVES sheet · ${g === 'month' ? 'month section' : 'date sent'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chV"></canvas></div></div>
+    <div class="card chart-card"><h3>Statics</h3><div class="sub">Figma · ${g === 'month' ? 'Approved + Tested + Winners on each month page' : 'by the date in the ad name'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chS"></canvas></div></div>
+  </div>`;
+  let buckets;
+  if (g === 'month') { buckets = monthsIn('2026-01-01', D.today).map(m => ({key:m, label:MON(m), a:m + '-01', b:m + '-31', sel:monthsIn(a, b).includes(m)})); }
+  else { buckets = []; let m = monday(addD(D.today, -7 * 11)); while (m <= D.today) { const e = addD(m, 6); buckets.push({key:m, label:fmtD(m) + (e > D.today ? '*' : ''), a:m, b:e, sel:m <= b && e >= a}); m = addD(m, 7); } }
+  for (const bk of buckets) { bk.v = cnt(vidsIn(bk.a, bk.b, g)); bk.s = cnt(staticsIn(bk.a, bk.b, g)); }
+  const row = (lbl, o, sel) => `<tr style="${sel ? 'background:#c7b48b12' : ''}"><td>${lbl}${sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${o.total}</b></td><td>${o.hooks || '–'}</td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td></tr>`;
+  h += `<div class="grid charts" style="margin-top:14px">
+    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Videos</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, bk.v, bk.sel)).join('')}</tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Statics</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.s, hooks:0}, bk.sel)).join('')}</tbody></table></div>
+  </div>`;
+  const eds = {}, vv = vidsIn(a, b, g);
+  const blank = () => ({n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0, total:0});
+  for (const v of vv) { const o = eds[v.editor || 'Unknown'] || (eds[v.editor || 'Unknown'] = blank()); o.n++; o.total++; o.hooks += v.hooks || 0; if (o[v.cat] !== undefined) o[v.cat]++; }
+  for (const r of inprod) { const o = eds[r.editor || 'Unassigned'] || (eds[r.editor || 'Unassigned'] = blank()); o.prod += r.n; }
   const des = {};
-  for (const mm of months) for (const it of mm.items) { const o = des[it.designer] || (des[it.designer] = {n:0, 'Net New':0, Iteration:0, Adaptation:0}); o.n++; o[it.cat]++; }
-  h += `<h2 class="sec">Statics approved per month <small>Figma · Meta Square Ads - Approved</small></h2>
-  <div class="card chart-card"><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:240px"><canvas id="chSt"></canvas></div></div>
-  <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>Designer (${months.map(x => x.month).join(', ') || '–'})</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>
-    ${Object.entries(des).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o['Net New']}</td><td>${o.Iteration}</td><td>${o.Adaptation}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No month in the selected dates</td></tr>'}
-  </tbody></table></div><div class="note">Statics: V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation, the rest net new. Each static counted once (1x1 frame).</div>`;
+  for (const it of staticsIn(a, b, g)) { const o = des[it.designer] || (des[it.designer] = blank()); o.n++; o.total++; o[it.cat]++; }
+  const pplRow = (n, o, prod) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td>${prod ? `<td>${o.prod}</td>` : ''}</tr>`;
+  h += `<div class="grid charts" style="margin-top:14px">
+    <div><h2 class="sec">By editor <small>${esc(label)} · in production = now</small></h2><div class="tbl-wrap"><table><thead><tr><th>Editor</th><th>Videos</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>In production</th></tr></thead><tbody>
+      ${Object.entries(eds).sort((x, y) => y[1].n - x[1].n || y[1].prod - x[1].prod).map(([n, o]) => pplRow(n, o, true)).join('')}</tbody></table></div></div>
+    <div><h2 class="sec">By designer <small>${esc(label)}</small></h2><div class="tbl-wrap"><table><thead><tr><th>Designer</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>
+      ${Object.entries(des).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => pplRow(n, o, false)).join('') || '<tr><td colspan="5" class="muted">No statics in these dates</td></tr>'}</tbody></table></div></div>
+  </div>
+  <div class="note">Videos: CREATIVES sheet. Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. In production: Notion Evergreen Video. Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
   afterRender.push(() => {
-    const opt = {responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false}, plugins:{legend:{display:false}},
-      scales:{x:{stacked:true, grid:{display:false}, ticks:{color:'#8a8a94', font:{family:'Poppins', size:11}}}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', precision:0}}}};
-    charts.pw = new Chart($('#chPw'), {type:'bar', data:{labels:weeks.map(w => fmtD(w.m) + (w.part ? '*' : '')), datasets:CATS.map(([n, col]) => ({label:n, data:weeks.map(w => w[n]), backgroundColor:col, borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}))}, options:opt});
-    const cats = mm => { const o = {'Net New':0, Iteration:0, Adaptation:0}; mm.items.forEach(i => o[i.cat]++); return o; };
-    charts.st = new Chart($('#chSt'), {type:'bar', data:{labels:st.map(x => P(x.month + '-01').toLocaleDateString('en-GB', {month:'short', timeZone:'UTC'})), datasets:CATS.map(([n, col]) => ({label:n, data:st.map(x => cats(x)[n]), backgroundColor:col, borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}))}, options:opt});
+    $('#pmode').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.pmode = bt.dataset.v; render(); } };
+    const pc = (S.pmode || 'n') === 'p';
+    const opt = {responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:i => `${i.dataset.label}: ${pc ? i.raw + '%' : i.raw}`}}},
+      scales:{x:{stacked:true, grid:{display:false}, ticks:{color:'#8a8a94', font:{family:'Poppins', size:11}}}, y:{stacked:true, max:pc ? 100 : undefined, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', precision:0, callback:v => pc ? v + '%' : v}}}};
+    const ds = key => CATS.map(([n, col]) => ({label:n, data:buckets.map(bk => pc ? Math.round(share(bk[key], n) * 100) : bk[key][n]),
+      backgroundColor:buckets.map(bk => bk.sel ? col : col + '66'), borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}));
+    charts.v = new Chart($('#chV'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('v')}, options:opt});
+    charts.s = new Chart($('#chS'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('s')}, options:opt});
   });
   return h;
 }
@@ -635,35 +709,51 @@ function fatigue() {
     .map(c => ({c, prev:prev.get(c.key).r[S.model], drop:prev.get(c.key).r[S.model] ? 1 - c.r[S.model] / prev.get(c.key).r[S.model] : 0}))
     .filter(x => x.drop >= 0.3).sort((x, y) => y.c.sp * y.drop - x.c.sp * x.drop);
 }
+const AVATARS = ['VANCE','SARAH','MIKE','JOHN','STEVE','DARIEN','DON','COLE','DANA'];
+function ccat(c) {
+  if (c.kind === 'VID') {
+    const sh = PR && c.id ? (PR._idcat || (PR._idcat = Object.fromEntries(PR.videos.filter(v => v.id).map(v => [v.id.toUpperCase(), v.cat]))))[c.id] : null;
+    if (sh && sh !== 'Unknown') return sh;
+    const t = c.ads[0].ad.n.split('_').map(x => x.trim());
+    if (t.includes('Ite') || t.includes('Iteration')) return 'Iteration';
+    if (t.includes('Adapt') || t.includes('Adaptation')) return 'Adaptation';
+    if (t.includes('New')) return 'Net New';
+    return null;
+  }
+  const t = c.ads[0].ad.n.split('_');
+  const v = t.find(x => /^V\d+$/.test(x)); const src = t.find(x => x.startsWith('Src-'));
+  if (v && +v.slice(1) > 1) return 'Iteration';
+  if (src && !['Src-None','Src-TBD'].includes(src)) return 'Adaptation';
+  return 'Net New';
+}
+function cavatar(c) { for (const x of c.ads[0].ad.n.split('_')) { const u = x.trim().toUpperCase(); const hit = AVATARS.find(a2 => u === a2 || u.startsWith(a2 + ' ') || u.startsWith(a2 + '-')); if (hit) return hit; } return null; }
 function pInsights() {
-  const [a, b] = R(), cs = concepts(a, b), bm = benchmark(cs);
-  const dims = [['product','Product'],['angle','Angle'],['format','Format / production type'],['hook_tactic','Hook tactic'],['structure','Script structure'],['funnel','Funnel stage'],['creator','Creator'],['kind','Video vs static']];
-  const g = new Map();
-  for (const c of cs) { const kk = S.ins === 'kind' ? (c.kind === 'VID' ? 'Video' : 'Static') : c[S.ins]; if (!kk) continue; const o = g.get(kk) || {k:kk, sp:0, fc:0, ta:0, pr:0, n:0}; o.sp += c.sp; o.fc += c.fc; o.ta += c.ta; o.pr += c.pr; o.n++; g.set(kk, o); }
-  const rows = [...g.values()].sort((x, y) => y.sp - x.sp).slice(0, 20), maxSp = Math.max(1, ...rows.map(r => r.sp));
+  const [a, b] = R(), cs = concepts(a, b), tot = cs.reduce((x, c) => x + c.sp, 0), bm = target();
+  const dims = [
+    ['Product', c => c.product], ['Net new vs iteration', c => ccat(c)], ['Video vs static', c => c.kind === 'VID' ? 'Video' : 'Static'],
+    ['Format', c => c.kind === 'VID' ? c.format : (c.format ? 'Static · ' + c.format : null)], ['Avatar', c => cavatar(c)], ['Angle', c => c.angle],
+    ['Hook tactic', c => c.hook_tactic], ['Funnel', c => c.funnel], ['Editor', c => c.kind === 'VID' ? c.editor : null], ['Designer', c => c.kind === 'IMG' ? c.designer : null]];
+  const group = fn => { const g = new Map(); for (const c of cs) { const k2 = fn(c); if (!k2) continue; const o = g.get(k2) || {k:k2, sp:0, fc:0, ta:0, pr:0, n:0, hits:0, list:[]}; o.sp += c.sp; o.fc += c.fc; o.ta += c.ta; o.pr += c.pr; o.n++; if (c.usd >= 1000 && c.r[S.model] >= bm) o.hits++; o.list.push(c); g.set(k2, o); } return [...g.values()].sort((x, y) => y.sp - x.sp); };
+  const panel = (title, rows, note = '') => {
+    const covered = rows.reduce((x, r) => x + r.sp, 0), maxSp = Math.max(1, ...rows.map(r => r.sp));
+    return `<div class="card ins"><div class="ins-h"><h3>${title}</h3><span class="muted">${tot ? pct(covered / tot, 0) : '–'} of spend tagged</span></div>
+      ${rows.slice(0, 8).map(r => { const rr = {fc:r.fc / r.sp, ta:r.ta / r.sp, pl:r.pr / r.sp}[S.model];
+        return `<div class="ins-row"><div class="ins-l"><b title="${esc(r.k)}">${esc(r.k)}</b><span>${r.n} concepts · ${r.hits} hits</span></div>
+          <div class="ins-bar"><i style="width:${(r.sp / maxSp * 100).toFixed(1)}%"></i><em>${money(r.sp)} · ${tot ? pct(r.sp / tot, 0) : '–'}</em></div>
+          <div class="ins-r ${rc(rr)}">${x2(rr)}</div>
+          <div class="ins-t">${r.list.sort((x, y) => y.sp - x.sp).slice(0, 3).map(c => `<img src="${esc(c.thumb || '')}" title="${esc((c.id || '') + ' ' + c.title + ' · ' + money(c.sp))}" data-c="${esc(c.key)}">`).join('')}</div></div>`; }).join('') || '<div class="muted" style="padding:10px 0">No tagged ads in these dates.</div>'}
+      ${note ? `<div class="note">${note}</div>` : ''}</div>`;
+  };
+  let h = head('Where the money goes and what it returns', 'Creative insights');
+  const cat = group(c => ccat(c)), vs = group(c => c.kind === 'VID' ? 'Video' : 'Static');
+  const tile = (lbl, rows, k2) => { const r = rows.find(x => x.k === k2); if (!r) return ''; const rr = {fc:r.fc / r.sp, ta:r.ta / r.sp, pl:r.pr / r.sp}[S.model];
+    return `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${tot ? pct(r.sp / tot, 0) : '–'} <span class="muted" style="font-size:14px">of spend</span></div><div class="delta">${money(r.sp)} · ${MODELS[S.model]} ROAS <b class="${rc(rr)}">${x2(rr)}</b> · ${r.n} concepts</div></div>`; };
+  h += `<div class="grid kpis hero">${tile('Net new', cat, 'Net New')}${tile('Iterations', cat, 'Iteration')}${tile('Adaptations', cat, 'Adaptation')}${tile('Video', vs, 'Video')}</div>
+  <div class="note">Bars = share of Meta spend in the selected dates. ROAS is ${MODELS[S.model]}; <span class="good">green</span> at or above ${S.target === 'auto' ? 'the account average' : S.target} (${x2(bm)}). A hit = $1k+ spend and above that line. Thumbnails = the 3 biggest spenders, click to open.</div>
+  <div class="ins-grid">${dims.map(([t, fn]) => panel(t, group(fn), t === 'Net new vs iteration' ? 'Videos: CREATIVES sheet column "Net New VS Ite", falling back to the ad name. Statics: V2+ = iteration, Src-&lt;brand&gt; = adaptation.' : '')).join('')}</div>`;
   const fat = fatigue();
-  let h = head('Patterns behind the winners', 'Creative insights');
-  h += `<div class="toolbar"><span class="muted">Break down by</span><select id="insDim">${dims.map(([kk, l]) => `<option value="${kk}" ${S.ins === kk ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
-  <div class="tbl-wrap"><table><thead><tr><th class="l">${esc(dims.find(d => d[0] === S.ins)[1])}</th><th>Concepts</th><th class="l">Spend</th><th>FC ROAS</th><th>Triple</th><th>Platform</th><th class="l">vs account</th></tr></thead><tbody>
-  ${rows.map(r => { const rr = {fc:r.fc / r.sp, ta:r.ta / r.sp, pl:r.pr / r.sp}; const d = bm ? rr[S.model] / bm - 1 : 0;
-    return `<tr><td class="l"><b>${esc(r.k)}</b></td><td>${r.n}</td><td class="l">${money(r.sp)}<span class="bar" style="width:${(r.sp / maxSp * 120).toFixed(0)}px"></span></td>
-    <td class="${rc(rr.fc, 'fc')}">${x2(rr.fc)}</td><td class="${rc(rr.ta, 'ta')}">${x2(rr.ta)}</td><td>${x2(rr.pl)}</td><td class="l"><span class="${d >= 0 ? 'up' : 'down'}">${d >= 0 ? '▲' : '▼'} ${Math.abs(d * 100).toFixed(0)}%</span></td></tr>`; }).join('')}
-  </tbody></table></div>
-  <h2 class="sec">Acquirer or closer? <small>First Click vs Platform ROAS, bubble = spend</small></h2>
-  <div class="card chart-card"><div class="legend"><span><i style="background:#b38b33"></i>Video</span><span><i style="background:#3a80c4"></i>Static</span><span class="muted">Above the line = starts journeys (scale it). Far below = retargeting asset.</span></div><div class="chart-wrap" style="height:340px"><canvas id="chSc"></canvas></div></div>
-  <h2 class="sec">Fatigue watch <small>${MODELS[S.model]} ROAS down 30%+ vs the comparison dates</small></h2>
-  ${fat.length ? `<div class="tbl-wrap"><table><thead><tr><th class="l">Concept</th><th>Spend</th><th>Before</th><th>Now</th><th>Change</th></tr></thead><tbody>${fat.slice(0, 15).map(f => `<tr data-c="${esc(f.c.key)}" style="cursor:pointer"><td class="l"><b>${esc(f.c.id || '')}</b> ${esc(f.c.title)}</td><td>${money(f.c.sp)}</td><td>${x2(f.prev)}</td><td class="${rc(f.c.r[S.model])}">${x2(f.c.r[S.model])}</td><td class="down">▼ ${(f.drop * 100).toFixed(0)}%</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nothing fatiguing.</div>'}`;
-  afterRender.push(() => {
-    $('#insDim').onchange = e => { S.ins = e.target.value; render(); };
-    const pts = cs.filter(c => c.sp >= minK() && c.r.pl > 0), maxS = Math.max(1, ...pts.map(c => c.sp));
-    const ds = kk => ({label:kk, data:pts.filter(c => c.kind === kk).map(c => ({x:+c.r.pl.toFixed(2), y:+c.r.fc.toFixed(2), r:4 + 16 * Math.sqrt(c.sp / maxS), c})),
-      backgroundColor:kk === 'VID' ? '#b38b3399' : '#3a80c499', borderColor:kk === 'VID' ? '#b38b33' : '#3a80c4', borderWidth:1.5});
-    const mx = Math.max(2, ...pts.map(c => Math.max(c.r.pl, c.r.fc))) * 1.05;
-    charts.sc = new Chart($('#chSc'), {type:'bubble', data:{datasets:[ds('VID'), ds('IMG'), {type:'line', label:'diag', data:[{x:0, y:0}, {x:mx, y:mx}], borderColor:'#36363e', borderDash:[4, 4], pointRadius:0, borderWidth:1}]},
-      options:{responsive:true, maintainAspectRatio:false, onClick:(e, els) => { const el = els[0]; if (el) { const c = charts.sc.data.datasets[el.datasetIndex].data[el.index].c; if (c) openConcept(c.key); } },
-        plugins:{legend:{display:false}, tooltip:{filter:i => i.dataset.label !== 'diag', callbacks:{label:i => { const c = i.raw.c; return `${c.id || ''} ${c.title} · FC ${x2(c.r.fc)} · Platform ${x2(c.r.pl)} · ${money(c.sp)}`; }}}},
-        scales:{x:{min:0, max:mx, title:{display:true, text:'Platform ROAS', color:'#8a8a94'}, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}, y:{min:0, max:mx, title:{display:true, text:'First Click ROAS', color:'#8a8a94'}, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
-  });
+  h += `<h2 class="sec">Fatigue watch <small>${MODELS[S.model]} ROAS down 30%+ vs the comparison dates</small></h2>
+  ${fat.length ? `<div class="tbl-wrap"><table><thead><tr><th class="l">Concept</th><th>Spend</th><th>Before</th><th>Now</th><th>Change</th></tr></thead><tbody>${fat.slice(0, 12).map(f => `<tr data-c="${esc(f.c.key)}" style="cursor:pointer"><td class="l"><b>${esc(f.c.id || '')}</b> ${esc(f.c.title)}</td><td>${money(f.c.sp)}</td><td>${x2(f.prev)}</td><td class="${rc(f.c.r[S.model])}">${x2(f.c.r[S.model])}</td><td class="down">▼ ${(f.drop * 100).toFixed(0)}%</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty">Nothing fatiguing.</div>'}`;
   return h;
 }
 function pGuide() {
@@ -720,7 +810,7 @@ function openConcept(key, onlyStore) {
       scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', font:{size:10}}}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
 }
 function closeDrawer() { const p = $('#dPlayer'); if (p) p.pause(); $('#drawer').classList.remove('open'); $('#scrim').classList.remove('open'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); dpClose(); } });
 
 /* ---------------- boot ---------------- */
 async function start() {
