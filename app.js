@@ -21,6 +21,7 @@ async function unlockPrivate(pw) {
   let plain;
   try { plain = await crypto.subtle.decrypt({name:'AES-GCM', iv:b64(box.iv)}, key, b64(box.ct)); } catch (e) { throw new Error('Wrong password'); }
   const priv = JSON.parse(await new Response(new Blob([plain]).stream().pipeThrough(new DecompressionStream('gzip'))).text());
+  (priv.mkpi || []).forEach((mo, i) => { for (const [st, q] of Object.entries(mo)) if (D.mkpi[i] && D.mkpi[i][st]) D.mkpi[i][st] = D.mkpi[i][st].slice(0, 2).concat(q); });
   priv.kpi.forEach((day, i) => { for (const [st, q] of Object.entries(day)) if (D.kpi[i] && D.kpi[i][st]) D.kpi[i][st] = D.kpi[i][st].slice(0, 2).concat(q); });
   UNL = true; memo.clear();
 }
@@ -63,10 +64,14 @@ const R = () => [S.from, S.to];
 const dIdx = s => { const i = D.days.indexOf(s); return i; };
 function idxRange(a, b) { let i0 = D.days.indexOf(a), i1 = D.days.indexOf(b); if (i0 < 0) i0 = a < D.days[0] ? 0 : D.days.length; if (i1 < 0) i1 = b > D.days[D.days.length - 1] ? D.days.length - 1 : -1; return [i0, i1]; }
 const inRange = (s, a, b) => !!s && s >= a && s <= b;
+// months before the daily window come as whole-month blocks (Jan..Aug); a block counts when the range touches it
+function monthIdx(a, b) { const out = []; (D.months || []).forEach((m, i) => { const ms = m + '-01', me = m + '-31'; if (ms <= b && me >= a) out.push(i); }); return out; }
+const partialMonths = (a, b) => monthIdx(a, b).some(i => { const m = D.months[i]; return a > m + '-01' || b < m + '-28'; });
 let FIRST = null; // concept key -> first day it spent anywhere (true launch date; the date in the name is the brief date)
 function firstLive() {
   if (FIRST) return FIRST;
   FIRST = new Map();
+  for (const r of D.mrows || []) FIRST.set(ckey(D.ads[r[0]]), -1);
   for (const r of D.rows) { if (r[2] <= 0) continue; const kk = ckey(D.ads[r[0]]); const cur = FIRST.get(kk); if (cur === undefined || r[1] < cur) FIRST.set(kk, r[1]); }
   return FIRST;
 }
@@ -111,6 +116,16 @@ function kpis(a, b, mkt = S.market) {
       o.paidSp += q[0] * f; o.paidFc += q[1] * f; o.paidTa += q[2] * f; o.metaSp += q[3] * f; o.metaFc += q[4] * f; o.metaTa += q[5] * f; o.metaPl += q[6] * f;
     }
   }
+  for (const i of monthIdx(a, b)) {
+    for (const [st, q] of Object.entries(D.mkpi[i] || {})) {
+      if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+      o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.addBack += (q[6] || 0) * f;
+    }
+    for (const [st, q] of Object.entries(D.mpaid[i] || {})) {
+      if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+      o.paidSp += q[0] * f; o.paidFc += q[1] * f; o.paidTa += q[2] * f; o.metaSp += q[3] * f; o.metaFc += q[4] * f; o.metaTa += q[5] * f; o.metaPl += q[6] * f;
+    }
+  }
   o.roas = o.spend ? o.sales / o.spend : 0; o.aov = o.orders ? o.sales / o.orders : 0; o.ncCpa = o.ncOrders ? o.spend / o.ncOrders : 0;
   o.r = {fc: o.paidSp ? o.paidFc / o.paidSp : 0, ta: o.paidSp ? o.paidTa / o.paidSp : 0, pl: o.metaSp ? o.metaPl / o.metaSp : 0};
   o.meta = {fc: o.metaSp ? o.metaFc / o.metaSp : 0, ta: o.metaSp ? o.metaTa / o.metaSp : 0, pl: o.metaSp ? o.metaPl / o.metaSp : 0};
@@ -126,6 +141,20 @@ function adSums(a, b, mkt = S.market) {
     let o = m.get(r[0]); if (!o) { o = {ad, sp:0, pr:0, fc:0, ta:0, fco:0, im:0, cl:0, atc:0, usd:0}; m.set(r[0], o); }
     const f = k(ad.s);
     o.sp += r[2] * f; o.pr += r[3] * f; o.fc += r[4] * f; o.ta += r[5] * f; o.fco += r[6]; o.im += r[7]; o.cl += r[8]; o.atc += r[9]; o.usd += r[2] * fx(ad.s);
+  }
+  const mis = new Set(monthIdx(a, b));
+  for (const r of D.mrows || []) {
+    if (!mis.has(r[1])) continue;
+    const ad = D.ads[r[0]]; if (mkt !== 'ALL' && ad.s !== mkt) continue;
+    let o = m.get(r[0]); if (!o) { o = {ad, sp:0, pr:0, fc:0, ta:0, fco:0, im:0, cl:0, atc:0, usd:0}; m.set(r[0], o); }
+    const f = k(ad.s);
+    o.sp += r[2] * f; o.pr += r[3] * f; o.fc += r[4] * f; o.ta += r[5] * f; o.fco += r[6]; o.im += r[7]; o.cl += r[8]; o.atc += r[9]; o.usd += r[2] * fx(ad.s);
+  }
+  for (const r of D.mvrows || []) {
+    if (!mis.has(r[1])) continue;
+    const o = m.get(r[0]); if (!o) continue;
+    const v = o.v || (o.v = {im:0, v3:0, tp:0, p25:0, p50:0, p75:0, p100:0, oc:0, cl:0});
+    v.im += r[2]; v.v3 += r[3]; v.tp += r[4]; v.p25 += r[5]; v.p50 += r[6]; v.p75 += r[7]; v.p100 += r[8]; v.oc += r[9]; v.cl += r[10];
   }
   for (const r of D.vrows || []) {
     if (r[1] < i0 || r[1] > i1) continue;
@@ -220,7 +249,7 @@ function streak(clan, name) { let n = 0; for (const [a, b] of fullWeeks().revers
 function allTimeSpend() {
   if (memo.has('ats')) return memo.get('ats');
   const save = S.cur; S.cur = 'USD';
-  const m = new Map(concepts(D.days[0], D.days[D.days.length - 1], 'ALL').map(c => [c.key, c]));
+  const m = new Map(concepts(MIN_DAY, D.today, 'ALL').map(c => [c.key, c]));
   S.cur = save; memo.set('ats', m); return m;
 }
 
@@ -278,7 +307,7 @@ function readHash() {
 function applyPreset() { if (S.preset !== 'custom') [S.from, S.to] = presetRange(S.preset); }
 function rangeBar() {
   const [ca, cb] = compareRange(S.from, S.to);
-  const early = S.from < D.days[0] && S.page !== 'production' ? ` · <span class="bad">ad data in the hub starts ${fmtD(D.days[0])}</span>` : '';
+  const early = S.page !== 'production' && partialMonths(S.from, S.to) ? ` · <span class="muted">before ${fmtD(D.days[0])} the hub counts whole months</span>` : '';
   return `<div class="rangebar"><div class="seg" id="rPre">${PRESETS.map(([v, l]) => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
     <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · compared with ${fmtD(ca)} – ${fmtD(cb)}${early}</span></div>`;
@@ -728,8 +757,8 @@ function pRookies() {
 function pRoad() {
   const ats = allTimeSpend();
   const cs = [...ats.values()].sort((x, y) => y.sp - x.sp).slice(0, 80);
-  return `<div class="page-head"><div><div class="kicker">Win bar: $10,000 spend across all markets</div><h1>Road to $10k</h1></div><div class="meta">${fmtD(D.days[0])} – ${fmtD(D.today)} · all markets · USD</div></div>
-  <div class="note" style="margin:-8px 0 16px">A concept wins when it passes $10,000 of spend across every market. Spend here covers everything in the hub (${fmtD(D.days[0])} onward), so older winners show less than their lifetime total.</div>
+  return `<div class="page-head"><div><div class="kicker">Win bar: $10,000 spend across all markets</div><h1>Road to $10k</h1></div><div class="meta">1 Jan – ${fmtD(D.today)} · all markets · USD</div></div>
+  <div class="note" style="margin:-8px 0 16px">A concept wins when it passes $10,000 of spend across every market. Spend here covers 2026 so far (1 Jan onward), so winners from 2025 show less than their lifetime total.</div>
   <div class="tbl-wrap"><table><thead><tr><th>#</th><th class="l">Concept</th><th class="l">People</th><th>Spend</th><th class="l">Progress</th><th>FC ROAS</th><th>Triple</th><th>Platform</th></tr></thead><tbody>
   ${cs.map((c, i) => { const p = Math.min(1, c.sp / WIN_BAR), win = c.sp >= WIN_BAR;
     return `<tr data-c="${esc(c.key)}" style="cursor:pointer"><td>${i + 1}</td><td class="l"><b>${esc(c.id || '')}</b> ${esc(c.title)} ${win ? '<span class="pill gold">🏆 WINNER</span>' : ''}</td>
