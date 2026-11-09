@@ -310,7 +310,7 @@ function rangeBar() {
   const early = S.page !== 'production' && partialMonths(S.from, S.to) ? ` · <span class="muted">before ${fmtD(D.days[0])} the hub counts whole months</span>` : '';
   return `<div class="rangebar"><div class="seg" id="rPre">${PRESETS.map(([v, l]) => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
-    <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · compared with ${fmtD(ca)} – ${fmtD(cb)}${early}</span></div>`;
+    <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · ${ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
 }
 const DP = {a:null, b:null, hover:null, view:null};
 function ym(s) { return s.slice(0, 7); }
