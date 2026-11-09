@@ -481,3 +481,6 @@ td .bar{display:inline-block;height:6px;border-radius:3px;background:var(--gold2
 
 .charts3{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:1250px){.charts3{grid-template-columns:1fr}}
+/* sidebar scrolls without showing a bar; page scrollbars in the dark theme (Andy, 2026-11-09) */
+#side{scrollbar-width:none}#side::-webkit-scrollbar{display:none}
+html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
