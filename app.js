@@ -291,8 +291,9 @@ const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top stat
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
-  $('#nav').innerHTML = PAGES.filter(([p]) => canSee(p)).map(([p, l]) => `<button class="nav-item" data-p="${p}"><svg viewBox="0 0 24 24">${ICONS[p]}</svg>${l}</button>`).join('');
-  $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; $('#side').classList.remove('open'); render(); window.scrollTo(0, 0); } };
+  $('#nav').innerHTML = PAGES.filter(([p]) => canSee(p)).map(([p, l]) => `<button class="nav-item" data-p="${p}"><svg viewBox="0 0 24 24">${ICONS[p]}</svg>${l}</button>` +
+    (p === 'health' ? HTABS.map(([v, t]) => `<button class="nav-sub" data-p="health" data-ht="${v}">${t}</button>`).join('') : '')).join('');
+  $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; if (b.dataset.ht) S.ht = b.dataset.ht; $('#side').classList.remove('open'); render(); window.scrollTo(0, 0); } };
   seg('#cMarket', ['ALL', ...D.stores.map(s => s.code)].map(c => [c, (FLAGS[c] || '') + ' ' + (c === 'ALL' ? 'All' : c)]), 'market', () => { if (S.market === 'ALL') S.cur = 'USD'; });
   seg('#cModel', Object.entries(MODELS), 'model');
   const mi = $('#cMin'); mi.value = S.min; $('#cMinV').textContent = '$' + S.min;
@@ -312,7 +313,7 @@ function seg(sel, opts, key, after) {
 }
 function syncControls() {
   for (const [sel, key] of [['#cMarket','market'],['#cModel','model']]) for (const b of $(sel).children) b.classList.toggle('on', b.dataset.v === S[key]);
-  for (const b of $('#nav').children) b.classList.toggle('active', b.dataset.p === S.page);
+  for (const b of $('#nav').children) b.classList.toggle('active', b.dataset.ht ? S.page === 'health' && (S.ht || 'overview') === b.dataset.ht : b.dataset.p === S.page);
   const h = new URLSearchParams({p:S.page, r:S.preset, m:S.market, a:S.model, min:S.min, t:S.target});
   if (S.preset === 'custom') { h.set('from', S.from); h.set('to', S.to); }
   history.replaceState(null, '', '#' + h.toString());
@@ -335,7 +336,8 @@ function rangeBar() {
     <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
     <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · ${ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
 }
-const DP = {a:null, b:null, hover:null, view:null};
+const DP = {a:null, b:null, hover:null, view:null, cfg:null};
+const dpMin = () => (DP.cfg && DP.cfg.min) || MIN_DAY;
 function ym(s) { return s.slice(0, 7); }
 function addM(m, n) { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); }
 function dpMonth(m) {
@@ -345,7 +347,7 @@ function dpMonth(m) {
   const lo = DP.a, hi = DP.b || (DP.a && DP.hover ? DP.hover : null);
   const [r0, r1] = lo && hi ? (lo <= hi ? [lo, hi] : [hi, lo]) : [lo, lo];
   for (let d = 1; d <= days; d++) {
-    const ds = `${m}-${String(d).padStart(2, '0')}`, dis = ds < MIN_DAY || ds > D.today;
+    const ds = `${m}-${String(d).padStart(2, '0')}`, dis = ds < dpMin() || ds > D.today;
     const cls = ['d', dis ? 'dis' : '', ds === r0 ? 's' : '', ds === r1 ? 'e' : '', r0 && r1 && ds > r0 && ds < r1 ? 'in' : '', ds === D.today ? 'today' : ''].join(' ');
     cells += `<div class="${cls}" data-d="${dis ? '' : ds}">${d}</div>`;
   }
@@ -354,11 +356,12 @@ function dpMonth(m) {
 function dpDraw() {
   const el = $('#dp'), right = addM(DP.view, 1);
   const txt = '';
-  el.innerHTML = `<div class="dp-pre">${PRESETS.map(([v, l]) => `<button data-p="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="dp-main"><div class="dp-nav"><button id="dpPrev" ${DP.view <= ym(MIN_DAY) ? 'disabled' : ''}>‹</button><button id="dpNext" ${right >= ym(D.today) ? 'disabled' : ''}>›</button></div>
+  const C = DP.cfg;
+  el.innerHTML = `<div class="dp-pre">${C.title ? `<div class="dp-tt">${C.title}</div>` : ''}${C.presets.map(([v, l]) => v === '-' ? '<hr>' : `<button data-p="${v}" class="${C.cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="dp-main"><div class="dp-nav"><button id="dpPrev" ${DP.view <= ym(dpMin()) ? 'disabled' : ''}>‹</button><button id="dpNext" ${right >= ym(D.today) ? 'disabled' : ''}>›</button></div>
     <div class="dp-months">${dpMonth(DP.view)}${dpMonth(right)}</div>
     <div class="dp-foot"><span id="dpTxt">${txt}</span><span><button class="btn ghost sm" id="dpCancel">Cancel</button> <button class="btn sm" id="dpApply">Apply</button></span></div></div>`;
-  el.querySelectorAll('[data-p]').forEach(bt => bt.onclick = () => { S.preset = bt.dataset.p; applyPreset(); dpClose(); render(); });
+  el.querySelectorAll('[data-p]').forEach(bt => bt.onclick = () => { C.pick(bt.dataset.p); dpClose(); render(); });
   el.querySelectorAll('.d[data-d]').forEach(c => {
     if (!c.dataset.d) return;
     c.addEventListener('mousedown', e => { e.preventDefault(); const d = c.dataset.d; if (!DP.a || DP.b) { DP.a = d; DP.b = null; DP.hover = null; } else { DP.b = d; } dpPaint(); });
@@ -367,9 +370,7 @@ function dpDraw() {
   $('#dpPrev').onclick = () => { DP.view = addM(DP.view, -1); dpDraw(); };
   $('#dpNext').onclick = () => { DP.view = addM(DP.view, 1); dpDraw(); };
   $('#dpCancel').onclick = dpClose;
-  $('#dpApply').onclick = () => { if (!DP.a || !DP.b) return; let [x, y] = DP.a <= DP.b ? [DP.a, DP.b] : [DP.b, DP.a];
-    const match = PRESETS.find(([v]) => { const [p0, p1] = presetRange(v); return p0 === x && p1 === y; });
-    S.preset = match ? match[0] : 'custom'; S.from = x; S.to = y; dpClose(); render(); };
+  $('#dpApply').onclick = () => { if (!DP.a || !DP.b) return; const [x, y] = DP.a <= DP.b ? [DP.a, DP.b] : [DP.b, DP.a]; C.apply(x, y); dpClose(); render(); };
   dpPaint();
 }
 function dpPaint() {
@@ -382,21 +383,24 @@ function dpPaint() {
   $('#dpTxt').textContent = !DP.a ? 'Pick a start date' : !DP.b ? `${fmtD(DP.a)} – now pick an end date` : `${fmtD(x)} – ${fmtD(y)} · ${nDays(x, y)} days`;
   const ap = $('#dpApply'); ap.style.opacity = DP.a && DP.b ? 1 : .5;
 }
-function dpOpen(btn) {
+const hubDP = () => ({presets:PRESETS, cur:S.preset, a:S.from, b:S.to, min:MIN_DAY, pick:v => { S.preset = v; applyPreset(); },
+  apply:(x, y) => { const match = PRESETS.find(([v]) => { const [p0, p1] = presetRange(v); return p0 === x && p1 === y; }); S.preset = match ? match[0] : 'custom'; S.from = x; S.to = y; }});
+function dpOpen(btn, cfg) {
   let el = $('#dp'); if (!el) { el = document.createElement('div'); el.id = 'dp'; document.body.appendChild(el); }
-  DP.a = S.from; DP.b = S.to; DP.hover = null; DP.view = addM(ym(S.to), -1); if (DP.view < ym(MIN_DAY)) DP.view = ym(MIN_DAY);
+  DP.cfg = cfg || hubDP(); DP.btn = btn;
+  DP.a = DP.cfg.a; DP.b = DP.cfg.b; DP.hover = null; DP.view = addM(ym(DP.cfg.b || D.today), -1); if (DP.view < ym(dpMin())) DP.view = ym(dpMin());
   dpDraw(); el.classList.add('open');
   const r = btn.getBoundingClientRect(), w = el.offsetWidth;
   el.style.top = Math.min(r.bottom + 8, innerHeight - el.offsetHeight - 8) + 'px';
   el.style.left = Math.max(8, Math.min(r.left, innerWidth - w - 8)) + 'px';
   setTimeout(() => document.addEventListener('mousedown', dpOutside), 0);
 }
-function dpOutside(e) { const el = $('#dp'); if (el && !el.contains(e.target) && !e.target.closest('#dpBtn')) dpClose(); }
+function dpOutside(e) { const el = $('#dp'); if (el && !el.contains(e.target) && !(DP.btn && DP.btn.contains(e.target))) dpClose(); }
 function dpClose() { const el = $('#dp'); if (el) el.classList.remove('open'); document.removeEventListener('mousedown', dpOutside); }
 function wireRange() {
   const pre = $('#rPre'); if (!pre) return;
   pre.onclick = e => { const b = e.target.closest('button'); if (!b) return; S.preset = b.dataset.v; applyPreset(); render(); };
-  $('#dpBtn').onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open')) dpClose(); else dpOpen(e.currentTarget); };
+  $('#dpBtn').onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open') && DP.btn === e.currentTarget) dpClose(); else dpOpen(e.currentTarget); };
 }
 /* data freshness + owner-only refresh (Andy, 2026-11-10) */
 const agoTxt = iso => { const m = Math.round((Date.now() - new Date(iso)) / 6e4); return m < 60 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
@@ -799,12 +803,42 @@ function pReports() {
 /* ---------------- business health (Andy, 2026-11-10: OWNER ONLY, tabs per department) ---------------- */
 const MKC = {US:'#3a80c4', UK:'#cf4640', AU:'#b38b33', CA:'#8f74d6', DE:'#4fa37a', NL:'#e08a3c'};
 const HTABS = [['overview','Overview'],['profit','Daily profit'],['customers','Customers & LTV'],['margins','Margins & COGS'],['email','Email'],['support','Customer service'],['reviews','Reviews']];
-const HPRE = [['m','This month'],['lm','Last month'],['3m','Last 3 months'],['12m','Last 12 months'],['ytd','This year'],['ly','Last year'],['all','Since day one'],['custom','Custom']];
+const HPRE = [['today','Today'],['yday','Yesterday'],['7d','Last 7 days'],['14d','Last 14 days'],['30d','Last 30 days'],['90d','Last 90 days'],['365d','Last 365 days'],['-'],
+  ['wk','This week'],['lw','Last week'],['m','This month'],['lm','Last month'],['q','This quarter'],['lq','Last quarter'],['ytd','This year'],['ly','Last year'],['-'],['all','Since day one']];
+const HCMP = [['prev','Previous period'],['pm','Previous month'],['py','Previous year'],['none','No comparison']];
+const shiftM = (d, n) => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + n, dd = +d.slice(8, 10), last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return iso(new Date(Date.UTC(y, m, Math.min(dd, last)))); };
+const mEndD = d => iso(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0)));
+function hRange(p, first) {
+  const t = D.today, m0 = t.slice(0, 8) + '01', q0 = t.slice(0, 5) + String(Math.floor((+t.slice(5, 7) - 1) / 3) * 3 + 1).padStart(2, '0') + '-01', y0 = t.slice(0, 4) + '-01-01';
+  const back = n => [addD(t, -(n - 1)), t];
+  switch (p) {
+    case 'today': return [t, t]; case 'yday': return [addD(t, -1), addD(t, -1)];
+    case '7d': return back(7); case '14d': return back(14); case '30d': return back(30); case '90d': return back(90); case '365d': return back(365);
+    case 'wk': return [monday(t), t]; case 'lw': return [addD(monday(t), -7), addD(monday(t), -1)];
+    case 'm': return [m0, t]; case 'lm': return [shiftM(m0, -1), addD(m0, -1)];
+    case 'q': return [q0, t]; case 'lq': return [shiftM(q0, -3), addD(q0, -1)];
+    case 'ytd': return [y0, t]; case 'ly': return [(+t.slice(0, 4) - 1) + '-01-01', (+t.slice(0, 4) - 1) + '-12-31'];
+    case 'custom': if (S.hfrom && S.hto) return [S.hfrom, S.hto];
+  }
+  return [first, t];
+}
+/* "Previous period" keeps the same dates in the previous week / month / quarter / year (1-10 Nov vs 1-10 Oct), Andy 2026-11-10 */
+function hCompare(p, A, B, cmp) {
+  if (cmp === 'none') return [null, null];
+  if (cmp === 'custom' && S.hca && S.hcb) return [S.hca, S.hcb];
+  const fullM = A.slice(8) === '01' && B === mEndD(B), sm = n => [shiftM(A, n), fullM ? mEndD(shiftM(B.slice(0, 8) + '01', n)) : shiftM(B, n)];
+  if (cmp === 'py') return sm(-12); if (cmp === 'pm') return sm(-1);
+  if (p === 'today' || p === 'yday') return [addD(A, -1), addD(B, -1)];
+  if (p === 'wk' || p === 'lw') return [addD(A, -7), addD(B, -7)];
+  if (p === 'm' || p === 'lm') return sm(-1); if (p === 'q' || p === 'lq') return sm(-3); if (p === 'ytd' || p === 'ly') return sm(-12);
+  const n = nDays(A, B); return [addD(A, -n), addD(A, -1)];
+}
+const fRange = (a, b) => { const o = {day:'numeric', month:'short', timeZone:'UTC'}, y = {...o, year:'numeric'}; return a === b ? P(a).toLocaleDateString('en-GB', y) : a.slice(0, 4) === b.slice(0, 4) ? `${P(a).toLocaleDateString('en-GB', o)} – ${P(b).toLocaleDateString('en-GB', y)}` : `${P(a).toLocaleDateString('en-GB', y)} – ${P(b).toLocaleDateString('en-GB', y)}`; };
 function pHealth() {
   if (ACCESS !== 'owner' || !HL) return `<div class="page-head"><div><div class="kicker">Owner only</div><h1>Business health</h1></div></div><div class="empty">This page needs the owner password.</div>`;
   const mk = (S.market === 'ALL' ? Object.keys(HL.stores) : [S.market]).filter(st => HL.stores[st]);
   const today = D.today, thisMonth = today.slice(0, 7), tab = S.ht || 'overview';
-  const ZS = {s:{h:.75, bar:14, fs:12}, m:{h:1, bar:30, fs:13}, l:{h:1.5, bar:64, fs:15}}, hz = S.hz || 'm', Z = ZS[hz], H = px => Math.round(px * Z.h);
+  const ZS = {s:{h:.8, bar:16, fs:12, tk:11}, m:{h:1, bar:30, fs:13, tk:12.5}, l:{h:1.45, bar:64, fs:15, tk:14}}, hz = S.hz || 'm', Z = ZS[hz], H = px => Math.round(px * Z.h);
   const addM = (m, n) => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); };
   const mEnd = m => iso(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)));
   const corrOn = (S.hcor || 'fixed') === 'fixed';
@@ -819,28 +853,25 @@ function pHealth() {
   }
   const dates = Object.keys(daily).sort(), first = dates[0] || today;
   // ---------- date range + comparison (own controls, independent of the hub's weekly presets)
-  const pre = S.hpre || '12m';
-  const rng = (() => { const m0 = thisMonth.slice(0, 7);
-    if (pre === 'm') return [m0 + '-01', today]; if (pre === 'lm') { const m = addM(m0, -1); return [m + '-01', mEnd(m)]; }
-    if (pre === '3m') return [addM(m0, -2) + '-01', today]; if (pre === '12m') return [addM(m0, -11) + '-01', today];
-    if (pre === 'ytd') return [today.slice(0, 4) + '-01-01', today]; if (pre === 'ly') { const y = +today.slice(0, 4) - 1; return [y + '-01-01', y + '-12-31']; }
-    if (pre === 'custom' && S.hfrom && S.hto) return [S.hfrom, S.hto]; return [first, today]; })();
-  const [A, Bd] = rng, cmp = S.hcmp || 'prev';
-  const span = nDays(A, Bd);
-  const [CA, CB] = cmp === 'yoy' ? [(+A.slice(0, 4) - 1) + A.slice(4), (+Bd.slice(0, 4) - 1) + Bd.slice(4)] : cmp === 'prev' ? [addD(A, -span), addD(A, -1)] : [null, null];
+  const pre = ({'3m':'90d', '12m':'365d', yoy:'py'})[S.hpre] || S.hpre || 'm';
+  const [A, Bd] = hRange(pre, first), cmp = ({yoy:'py'})[S.hcmp] || S.hcmp || 'prev';
+  const span = nDays(A, Bd), nd = Math.max(1, nDays(A < first ? first : A, Bd > today ? today : Bd));
+  const [CA, CB] = hCompare(pre, A, Bd, cmp);
+  const CL = {prev:'previous period', pm:'previous month', py:'last year', custom:'compare dates'}[cmp];
   const inR = (d, a, b) => a && d >= a && d <= b, mIn = (m, a, b) => a && m >= a.slice(0, 7) && m <= b.slice(0, 7);
-  const g = S.hg || (span <= 62 ? 'day' : span <= 200 ? 'week' : 'month'), gc = g === 'day' ? 'week' : g;
+  const g = S.hg || (span <= 62 ? 'day' : span <= 200 ? 'week' : 'month');
   const KEY = {day:d => d, week:d => monday(d), month:d => d.slice(0, 7), year:d => d.slice(0, 4)};
   const LAB = {day:d => P(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short', year:'2-digit', timeZone:'UTC'}),
     week:d => 'w/c ' + P(d).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'2-digit', timeZone:'UTC'}), month:d => MONL(d), year:d => d};
   const SH = {day:d => fmtD(d), week:d => fmtD(d), month:d => MON(d) + ' ' + d.slice(2, 4), year:d => d};
   const sgn = (v, d = 0) => `<span class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '▲ +' : '▼ '}${(v * 100).toFixed(d)}%</span>`;
   const vs = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null) return '<span class="muted">no comparison</span>'; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
-    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(1)}%</span> <span class="muted">vs ${cmp === 'yoy' ? 'last year' : 'previous period'}</span>`; };
+    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(1)}%</span> <span class="muted">vs ${CL}</span>`; };
   const tabs = (id, cur, opts) => `<div class="tabs-mini" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const kp = (lbl, val, sub, cls = '', tip = '') => `<div class="card kpi"${tip ? ` title="${esc(tip)}"` : ''}><div class="lbl">${lbl}</div><div class="val num ${cls}">${val}</div><div class="delta">${sub}</div></div>`;
   const grid = (html, min = 190) => `<div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(${min}px,1fr));gap:12px;margin-top:12px">${html}</div>`;
-  const card = (id, title, sub, legend, hpx) => `<div class="card chart-card"><h3>${title}</h3>${sub ? `<div class="sub">${sub}</div>` : ''}${legend ? `<div class="legend">${legend}</div>` : ''}<div class="chart-wrap" style="height:${H(hpx || 250)}px"><canvas id="${id}"></canvas></div></div>`;
+  const card = (id, title, sub, legend, hpx, right) => `<div class="card chart-card"><div class="ch-top"><div><h3>${title}</h3>${sub ? `<div class="sub">${sub}</div>` : ''}</div>${right ? `<div class="ch-stat">${right}</div>` : ''}</div>${legend ? `<div class="legend">${legend}</div>` : ''}<div class="chart-wrap" style="height:${H(hpx || 250)}px"><canvas id="${id}"></canvas></div></div>`;
+  const cs = (l, v, cls = '') => `<div><small>${l}</small><b class="num ${cls}">${v}</b></div>`;
   const lg = arr => arr.map(([l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
   const more = (key, n, shown) => n > shown ? `<button class="btn ghost sm" data-more="${key}" style="margin-top:10px">Show all ${n} rows</button>` : '';
   const tblWrap = inner => `<div class="tbl-wrap" style="margin-top:12px">${inner}</div>`;
@@ -854,8 +885,17 @@ function pHealth() {
   const cust = gran => { const out = new Map(); for (const st of mk) { const o = HL.stores[st]; for (const r of (gran === 'week' ? o.weeks : o.months) || []) {
       const kk = gran === 'year' ? r[0].slice(0, 4) : r[0]; const x = crow(st, r); const b = out.get(kk) || {k:kk, o:0, nc:0, rev:0, ncrev:0, cogs:0}; for (const f in x) b[f] += x[f]; out.set(kk, b); } }
     return [...out.values()].sort((x, y) => x.k < y.k ? -1 : 1); };
-  const CM = cust('month'), CW = cust('week');
-  const custIn = (a, b) => { const r = {o:0, nc:0, rev:0, ncrev:0, cogs:0}; if (!a) return null; for (const x of CM) if (mIn(x.k, a, b)) for (const f in r) r[f] += x[f]; return r; };
+  const hasDays = mk.every(st => (HL.stores[st].days || []).length), DC = {};
+  if (hasDays) for (const st of mk) { const c = k(st); for (const r of HL.stores[st].days) { const b = DC[r[0]] || (DC[r[0]] = {o:0, nc:0, rev:0, ncrev:0, cogs:0}); b.o += r[1]; b.nc += r[2]; b.rev += r[3] * c; b.ncrev += r[4] * c; b.cogs += r[5] * c; } }
+  const dck = Object.keys(DC).sort();
+  const CM = hasDays ? null : cust('month'), CW = hasDays ? null : cust('week');
+  const custIn = (a, b) => { const r = {o:0, nc:0, rev:0, ncrev:0, cogs:0}; if (!a) return null;
+    if (hasDays) { for (const d of dck) if (d >= a && d <= b) for (const f in r) r[f] += DC[d][f]; return r; }
+    for (const x of CM) if (mIn(x.k, a, b)) for (const f in r) r[f] += x[f]; return r; };
+  const gc = hasDays ? g : g === 'day' ? 'week' : g;
+  const cseries = (gr, a, b) => { if (!hasDays) return (gr === 'week' ? CW : cust(gr)).filter(r => gr === 'year' ? r.k >= a.slice(0, 4) && r.k <= b.slice(0, 4) : gr === 'week' ? r.k >= monday(a) && r.k <= b : mIn(r.k, a, b));
+    const out = new Map(); for (const d of dck) { if (d < a || d > b) continue; const kk = KEY[gr](d), x = out.get(kk) || {k:kk, o:0, nc:0, rev:0, ncrev:0, cogs:0}; for (const f in DC[d]) x[f] += DC[d][f]; out.set(kk, x); } return [...out.values()]; };
+  const monthRow = m => hasDays ? (cseries('month', m + '-01', mEnd(m))[0] || {nc:0, ncrev:0}) : (CM.find(r => r.k === m) || {nc:0, ncrev:0});
   const lt = new Map();
   for (const st of mk) { const c = k(st), fpo = ((HL.stores[st].ful || {}).perOrder || 0) * c;
     for (const r of HL.stores[st].ltv || []) { const b = lt.get(r.m) || {m:r.m, n:0, rall:0, gall:0, rep:0, rep60:0, m60:0, ful:0};
@@ -865,7 +905,7 @@ function pHealth() {
   const coh = new Map(); for (const st of mk) { const c = k(st); for (const [m, kk, act, rev, gp] of HL.stores[st].cohort || []) { const b = coh.get(m) || {}; const x = b[kk] || (b[kk] = {rev:0, gp:0, act:0}); x.rev += rev * c; x.gp += gp * c; x.act += act; coh.set(m, b); } }
   const ltvWin = (w, from, to) => { let n = 0, r = 0, gp = 0; for (const b of lt.values()) if (b.m >= from && b.m <= to && b['m' + w]) { n += b['m' + w]; r += b['r' + w]; gp += b['g' + w]; } return {n, r:n ? r / n : null, g:n ? gp / n : null}; };
   const cacIn = (a, b) => { const c = custIn(a, b), sp = sumDays(a, b, 1); return c && c.nc && sp ? sp / c.nc : null; };
-  const ue = m => { const b = lt.get(m); if (!b) return null; const mo = CM.find(r => r.k === m) || {nc:0, ncrev:0}, sp = sumDays(m + '-01', mEnd(m), 1), cac = mo.nc && sp ? sp / mo.nc : null, ful = b.n ? b.ful / b.n : 0;
+  const ue = m => { const b = lt.get(m); if (!b) return null; const mo = monthRow(m), sp = sumDays(m + '-01', mEnd(m), 1), cac = mo.nc && sp ? sp / mo.nc : null, ful = b.n ? b.ful / b.n : 0;
     const aov = b.m0 ? b.r0 / b.m0 : null, gp0 = b.m0 ? b.g0 / b.m0 : null; let pay = null, rec = null, cg = 0, ca = 0; const cc = coh.get(m) || {};
     for (let K = 0; K <= 36 && addM(m, K) <= thisMonth; K++) { cg += cc[K] ? cc[K].gp : 0; ca += cc[K] ? cc[K].act : 0; const per = b.n ? (cg - ful * ca) / b.n : 0; rec = cac ? per / cac : null; if (cac && per >= cac) { pay = K; break; } }
     return {m, n:mo.nc || b.n, sp, cac, aov, gp0, ful, fc:gp0 != null && cac != null ? gp0 - ful - cac : null, amer:sp ? mo.ncrev / sp : null, r60:b.m60 ? b.rep60 / b.m60 : null, pay, rec, live:m === thisMonth}; };
@@ -876,19 +916,19 @@ function pHealth() {
     <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined (USD)' : S.market + ' · ' + curCode()} · data since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}</div></div>
     <div class="htabs">${HTABS.map(([v, l]) => `<button data-ht="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="hbar card">
-      <div class="seg" id="hpre">${HPRE.map(([v, l]) => `<button data-v="${v}" class="${pre === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-      <label class="hdate">From <input type="date" id="hfrom" value="${A}" min="${first}" max="${today}"></label><label class="hdate">To <input type="date" id="hto" value="${Bd}" min="${first}" max="${today}"></label>
-      <span class="hsep"></span><span class="muted" style="font-size:11px">Compare</span>${tabs('hcmp', cmp, [['prev','Previous period'],['yoy','Last year'],['none','None']])}
+      <button class="dp-btn hdp" id="hRange"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span><small>${(HPRE.find(x => x[0] === pre) || [0, 'Custom'])[1]} · ${span} day${span > 1 ? 's' : ''}</small><b>${fRange(A, Bd)}</b></span><i>▾</i></button>
+      <button class="dp-btn hdp cmp" id="hCmp"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><small>Compare to · ${(HCMP.find(x => x[0] === cmp) || [0, 'Custom dates'])[1]}</small><b>${CA ? fRange(CA, CB) : 'Off'}</b></span><i>▾</i></button>
       <span class="hsep"></span><span class="muted" style="font-size:11px">Per</span>${tabs('hg', g, [['day','Day'],['week','Week'],['month','Month'],['year','Year']])}
       <span class="hsep"></span><span class="muted" style="font-size:11px">Size</span>${tabs('hz', hz, [['s','S'],['m','M'],['l','L']])}
-      <div class="muted" style="width:100%;font-size:12px;margin-top:4px">${fmtD(A)} ${A.slice(0, 4)} to ${fmtD(Bd)} ${Bd.slice(0, 4)} (${span} days)${CA ? ` · compared with ${fmtD(CA)} ${CA.slice(0, 4)} to ${fmtD(CB)} ${CB.slice(0, 4)}` : ''}</div>
     </div><div class="hz" style="--hfs:${Z.fs}px">`;
   const after = [];
-  const ax = (stacked, money_) => ({x:{stacked, grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:12, font:{size:10}}},
-    y:{stacked, beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => money_ ? money(v) : (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v)}}});
-  const opt = (stacked, money_, extra = {}) => ({responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, ...(money_ ? {callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}} : {})}}, scales:ax(stacked, money_), ...extra});
-  const pctOpt = (extra = {}) => ({responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw == null ? '–' : c.raw + '%'}`}}},
-    scales:{x:ax(false).x, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => v + '%'}}}, ...extra});
+  const TF = {size:Z.tk, family:'Poppins'}, TT = {titleFont:{size:Z.tk + 1, weight:'600', family:'Poppins'}, bodyFont:{size:Z.tk, family:'Poppins'}, padding:10, boxPadding:4};
+  const ax = (stacked, money_) => ({x:{stacked, grid:{display:false}, ticks:{color:'#a3a3ad', maxRotation:0, autoSkip:true, maxTicksLimit:hz === 's' ? 8 : 12, font:TF}},
+    y:{stacked, beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#a3a3ad', font:TF, callback:v => money_ ? money(v) : (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v)}}});
+  const opt = (stacked, money_, extra = {}) => ({responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, ...TT, ...(money_ ? {callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}} : {})}}, scales:ax(stacked, money_), ...extra});
+  const yT = cb => ({color:'#a3a3ad', font:TF, ...(cb ? {callback:cb} : {})});
+  const pctOpt = (extra = {}) => ({responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, ...TT, callbacks:{label:c => `${c.dataset.label}: ${c.raw == null ? '–' : c.raw + '%'}`}}},
+    scales:{x:ax(false).x, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:yT(v => v + '%')}}, ...extra});
   const line = (label, data, col, ex = {}) => ({type:'line', label, data, borderColor:col, backgroundColor:col, borderWidth:2, pointRadius:hz === 'l' ? 3 : 1.5, tension:.25, ...ex});
   const bar = (label, data, col, ex = {}) => ({label, data, backgroundColor:col, borderRadius:2, maxBarThickness:Z.bar, ...ex});
   const mk1 = (id, cfg) => after.push(() => { const el = $('#' + id); if (el) charts[id] = new Chart(el, cfg); });
@@ -896,10 +936,11 @@ function pHealth() {
   // ---------- shared pieces
   const pr = bucket(A, Bd, KEY[g]);
   const profitChart = (id, rows) => mk1(id, {type:'bar', data:{labels:rows.map(b => SH[g](b.k)), datasets:mk.map(st => bar(st, rows.map(b => b.st[st] ? +b.st[st].pr.toFixed(0) : 0), MKC[st]))},
-    options:{...opt(true, true), plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, titleFont:{size:13, weight:'600'}, filter:c => c.raw !== 0,
+    options:{...opt(true, true), plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, ...TT, filter:c => c.raw !== 0,
       callbacks:{title:it => `${it[0].label}  ·  Total ${money(it.reduce((x, c) => x + c.raw, 0))}`, label:c => `${c.dataset.label}: ${money(c.raw)}`}}}}});
   const tot = {pr:sumDays(A, Bd, 2), rev:sumDays(A, Bd, 0), sp:sumDays(A, Bd, 1)}, ctot = CA ? {pr:sumDays(CA, CB, 2), rev:sumDays(CA, CB, 0), sp:sumDays(CA, CB, 1)} : {};
   const cu = custIn(A, Bd), ccu = CA ? custIn(CA, CB) : null;
+  const profStat = cs('Total profit', money(tot.pr), tot.pr >= 0 ? 'good' : 'bad') + cs('Avg / day', money(tot.pr / nd), tot.pr >= 0 ? 'good' : 'bad') + (CA ? cs('vs ' + CL, vs(tot.pr, ctot.pr).replace(/<span class="muted">.*$/, '')) : '');
 
   if (tab === 'overview') {
     const life = sumDays('0000', today, 2), L365 = ltvWin(365, addM(thisMonth, -24), addM(thisMonth, -13)), C365 = cacIn(addM(thisMonth, -24) + '-01', mEnd(addM(thisMonth, -13)));
@@ -918,7 +959,7 @@ function pHealth() {
       kp('CAC', cu.nc ? money(tot.sp / cu.nc, 0) : '–', vs(cu.nc ? tot.sp / cu.nc : null, ccu && ccu.nc ? ctot.sp / ccu.nc : null, true)) +
       kp('aMER', tot.sp ? x2(cu.ncrev / tot.sp) : '–', 'new-customer revenue ÷ ad spend') +
       kp('Gross margin', pct(cu.rev ? 1 - cu.cogs / cu.rev : null, 0), `COGS ${pct(cu.rev ? cu.cogs / cu.rev : null, 1)} of revenue`));
-    h += `<h2 class="sec" style="margin-top:22px">All time</h2>` + grid(
+    if (pre === 'all') h += `<h2 class="sec" style="margin-top:22px">All time</h2>` + grid(
       kp('Profit since day one', money(life), `since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}`, life >= 0 ? 'good' : 'bad') +
       kp('LTV after 365 days', L365.r != null ? money(L365.r, 0) : '–', `gross profit ${L365.g != null ? money(L365.g, 0) : '–'}`) +
       kp('LTV / CAC (365 days)', L365.g && C365 ? x2(L365.g / C365) : '–', 'gross-profit LTV ÷ CAC, customers acquired 13 to 24 months ago') +
@@ -927,37 +968,41 @@ function pHealth() {
       kp('Judge.me', jn ? (jw / jn).toFixed(2) + '<small style="font-size:14px;color:var(--muted)"> / 5</small>' : '–', `${int(jn)} product reviews`, 'good') +
       kp('Email list growth', e.recv != null ? ((e.sub - e.unsub - e.spam_u) >= 0 ? '+' : '') + int(e.sub - e.unsub - e.spam_u) : '–', 'new subscribers − unsubscribes − spam, these dates') +
       kp('Customer service', HL.support ? '' : '–', HL.support ? '' : 'Gorgias not connected yet'));
-    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hoP', 'Profit', `per ${g}`, mk.length > 1 ? lg(mk.map(st => [st, MKC[st]])) : '', 260)}
-      ${card('hoC', 'New vs returning customers', `orders per ${gc}`, lg([['New', '#b38b33'], ['Returning', '#3a80c4']]), 260)}</div>`;
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hoP', 'Profit', `per ${g}`, mk.length > 1 ? lg(mk.map(st => [st, MKC[st]])) : '', 260, profStat)}
+      ${card('hoC', 'New vs returning customers', `orders per ${gc}`, lg([['New', '#b38b33'], ['Returning', '#3a80c4']]), 260, cs('New', int(cu.nc)) + cs('Returning', int(cu.o - cu.nc)) + cs('New / day', int(cu.nc / nd)))}</div>`;
     profitChart('hoP', pr);
-    const cr = (gc === 'week' ? CW : cust(gc)).filter(r => gc === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : gc === 'week' ? r.k >= monday(A) && r.k <= Bd : mIn(r.k, A, Bd));
+    const cr = cseries(gc, A, Bd);
     mk1('hoC', {type:'bar', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[bar('New', cr.map(r => r.nc), '#b38b33'), bar('Returning', cr.map(r => r.o - r.nc), '#3a80c4')]}, options:opt(false, false)});
   }
 
   if (tab === 'profit') {
-    const rows = pr.slice().reverse(), all = S.hpAll === g + A + Bd, show = all ? rows : rows.slice(0, g === 'day' ? 62 : 36);
-    const fixed = Object.keys(corrDays).filter(d => inR(d, A, Bd)).length;
-    h += `<div class="chart-top" style="margin-top:18px"><h2 class="sec" style="margin:0">Profit per ${g} <small>${mk.length > 1 ? 'each market + total' : S.market}</small></h2>
-      <div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:11px">US order-edit days</span>${tabs('hcor', corrOn ? 'fixed' : 'raw', [['fixed','Corrected'],['raw','Triple Whale raw']])}</div></div>`;
-    h += grid(kp('Total profit', money(tot.pr), vs(tot.pr, ctot.pr), tot.pr >= 0 ? 'good' : 'bad') + kp('Average per day', money(tot.pr / Math.max(1, Math.min(span, nDays(A < first ? first : A, Bd)))), '') +
-      kp('Best ' + g, pr.length ? money(Math.max(...pr.map(b => b.pr))) : '–', pr.length ? LAB[g](pr.reduce((x, y) => y.pr > x.pr ? y : x).k) : '') +
-      kp('Worst ' + g, pr.length ? money(Math.min(...pr.map(b => b.pr))) : '–', pr.length ? LAB[g](pr.reduce((x, y) => y.pr < x.pr ? y : x).k) : '', 'bad') +
-      kp('Profitable ' + g + 's', pr.length ? `${pr.filter(b => b.pr > 0).length} / ${pr.length}` : '–', '') + kp('Net margin', pct(tot.rev ? tot.pr / tot.rev : null, 1), `on ${money(tot.rev)} revenue`), 170);
-    h += `<div class="card chart-card" style="margin-top:12px">${mk.length > 1 ? `<div class="legend">${lg(mk.map(st => [st, MKC[st]]))}</div>` : ''}<div class="chart-wrap" style="height:${H(320)}px"><canvas id="hpP"></canvas></div></div>`;
+    h += grid(kp('Total profit', money(tot.pr), vs(tot.pr, ctot.pr), tot.pr >= 0 ? 'good' : 'bad') + kp('Average per day', money(tot.pr / nd), CA ? vs(tot.pr / nd, ctot.pr / Math.max(1, nDays(CA, CB))) : '', tot.pr >= 0 ? 'good' : 'bad') +
+      kp('Revenue', money(tot.rev), vs(tot.rev, ctot.rev)) + kp('Ad spend', money(tot.sp), vs(tot.sp, ctot.sp, true)) +
+      kp('Net margin', pct(tot.rev ? tot.pr / tot.rev : null, 1), CA && ctot.rev ? `${pct(ctot.pr / ctot.rev, 1)} in the compare dates` : '') +
+      kp('Profitable ' + g + 's', pr.length ? `${pr.filter(b => b.pr > 0).length} / ${pr.length}` : '–', pr.length ? `best ${money(Math.max(...pr.map(b => b.pr)))} · worst ${money(Math.min(...pr.map(b => b.pr)))}` : ''), 170);
+    h += `<div style="margin-top:12px">${card('hpP', 'Profit', `per ${g} · ${mk.length > 1 ? 'each market stacked' : S.market}`, mk.length > 1 ? lg(mk.map(st => [st, MKC[st]])) : '', 320, profStat)}</div>`;
     profitChart('hpP', pr);
+    // sheet-style table: newest first, scrolls inside its own box, green / red boxes
+    const one = mk.length === 1, rows = pr.slice().reverse(), wk = {};
+    if (g === 'day') for (const b of pr) wk[monday(b.k)] = (wk[monday(b.k)] || 0) + b.pr;
+    const q95 = arr => { const v = arr.map(Math.abs).sort((x, y) => x - y); return v.length ? v[Math.floor(v.length * .95)] || v[v.length - 1] || 1 : 1; };
+    const scale = {}; for (const st of mk) scale[st] = q95(pr.filter(b => b.st[st]).map(b => b.st[st].pr)); scale.T = q95(pr.map(b => b.pr)); scale.W = q95(Object.values(wk));
+    const box = (v, sc, strong) => { if (v == null) return '<td class="num"><span class="muted">–</span></td>'; const a2 = (0.12 + 0.5 * Math.min(1, Math.abs(v) / (sc || 1))).toFixed(2);
+      return `<td class="num pb"><span class="${v >= 0 ? 'pos' : 'neg'}" style="background:${v >= 0 ? `rgba(79,163,122,${a2})` : `rgba(207,70,64,${a2})`}">${strong ? '<b>' : ''}${money(v)}${strong ? '</b>' : ''}</span></td>`; };
+    const roas = (r, sp) => sp ? (r / sp).toFixed(2) : '–', mg = (p2, r) => r ? pct(p2 / r, 1) : '–';
+    const tm = {}; for (const st of mk) { tm[st] = {pr:0, rev:0, sp:0}; for (const b of pr) if (b.st[st]) for (const f of ['pr', 'rev', 'sp']) tm[st][f] += b.st[st][f]; }
+    const head = one ? `<th>Revenue</th><th>Ad spend</th><th>ROAS</th><th>Margin</th><th>Profit</th>` : `${mk.map(st => `<th>${FLAGS[st]} ${st}</th>`).join('')}<th>Revenue</th><th>Ad spend</th><th>ROAS</th><th>Margin</th><th>Total profit</th>`;
+    const totRow = `<tr class="tot"><td class="l">Total · ${pr.length} ${g}${pr.length > 1 ? 's' : ''}</td>${one ? '' : mk.map(st => box(tm[st].pr, 0, true)).join('')}<td class="num">${money(tot.rev)}</td><td class="num">${money(tot.sp)}</td><td class="num">${roas(tot.rev, tot.sp)}</td><td class="num">${mg(tot.pr, tot.rev)}</td>${box(tot.pr, 0, true)}${g === 'day' ? '<td></td>' : ''}</tr>`;
+    const body = rows.map(b => { const endW = g === 'day' && (P(b.k).getUTCDay() === 0 || b.k === pr[pr.length - 1].k);
+      return `<tr${b.fix ? ' title="US order-edit refund bug corrected on this day"' : ''}${endW ? ' class="wend"' : ''}><td class="l">${LAB[g](b.k)}</td>${one ? '' : mk.map(st => box(b.st[st] ? b.st[st].pr : null, scale[st])).join('')}
+        <td class="num">${money(b.rev)}</td><td class="num">${money(b.sp)}</td><td class="num">${roas(b.rev, b.sp)}</td><td class="num">${mg(b.pr, b.rev)}</td>${box(b.pr, scale.T, true)}${g === 'day' ? (endW ? box(wk[monday(b.k)], scale.W, true) : '<td></td>') : ''}</tr>`; }).join('');
+    h += `<div class="chart-top" style="margin-top:20px"><h2 class="sec" style="margin:0">Profit per ${g} <small>newest first · scroll inside the table</small></h2></div>
+      <div class="hsheet" style="max-height:${Math.round(560 * Z.h)}px"><table class="hdaily"><thead><tr><th class="l">${g === 'day' ? 'Date' : g[0].toUpperCase() + g.slice(1)}</th>${head}${g === 'day' ? '<th>Week</th>' : ''}</tr>${totRow}</thead><tbody>${body}</tbody></table></div>
+      <div class="note">Week = profit of that Monday to Sunday week, shown on the Sunday. US 19-20 Aug and 24 Sep 2026 are corrected for the order-edit refund bug.</div>`;
     const cum = []; let run = 0; for (const b of pr) { run += b.pr; cum.push(+run.toFixed(0)); }
-    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:12px">${card('hpCum', 'Cumulative profit', 'running total over these dates', '', 220)}${card('hpM', 'Net margin', `profit ÷ revenue per ${g}`, '', 220)}</div>`;
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hpCum', 'Cumulative profit', 'running total over these dates', '', 220, cs('End', money(run), run >= 0 ? 'good' : 'bad'))}${card('hpM', 'Net margin', `profit ÷ revenue per ${g}`, '', 220, cs('Average', mg(tot.pr, tot.rev)))}</div>`;
     mk1('hpCum', {type:'line', data:{labels:pr.map(b => SH[g](b.k)), datasets:[line('Cumulative profit', cum, '#4fa37a', {fill:true, backgroundColor:'rgba(79,163,122,.12)'})]}, options:opt(false, true)});
     mk1('hpM', {type:'line', data:{labels:pr.map(b => SH[g](b.k)), datasets:[line('Net margin', pr.map(b => b.rev ? +(b.pr / b.rev * 100).toFixed(1) : null), '#c7b48b')]}, options:pctOpt()});
-    h += tblWrap(`<table class="hdaily"><thead><tr><th class="l">${g === 'day' ? 'Date' : g[0].toUpperCase() + g.slice(1)}</th>${mk.map(st => `<th>${FLAGS[st]} ${st}</th>`).join('')}<th>${mk.length > 1 ? 'Total' : 'Profit'}</th></tr></thead><tbody>
-      <tr class="tot"><td class="l"><b>Total</b></td>${mk.map(st => { const v = pr.reduce((x, b) => x + (b.st[st] ? b.st[st].pr : 0), 0); return `<td class="num ${v < 0 ? 'bad' : ''}"><b>${money(v)}</b></td>`; }).join('')}<td class="num ${tot.pr < 0 ? 'bad' : 'good'}"><b>${money(tot.pr)}</b></td></tr>
-      ${show.map(b => `<tr><td class="l">${LAB[g](b.k)}${b.fix ? ` <span class="pill gold" title="contains a corrected US order-edit day">${corrOn ? 'corrected' : 'raw, wrong'}</span>` : ''}</td>${mk.map(st => `<td class="num ${b.st[st] && b.st[st].pr < 0 ? 'bad' : ''}">${b.st[st] ? money(b.st[st].pr) : '<span class="muted">–</span>'}</td>`).join('')}<td class="num ${b.pr < 0 ? 'bad' : 'good'}"><b>${money(b.pr)}</b></td></tr>`).join('')}
-      </tbody></table>`) + (all ? '' : more('p', rows.length, show.length));
-    const cd = Object.entries(corrDays).filter(([d]) => inR(d, A, Bd) || pre === 'all').sort();
-    if (cd.length || mk.includes('US')) h += `<h2 class="sec" style="margin-top:24px">US order-edit corrections <small>the Feather / Tiger / BJORN / ODIN SKU switches</small></h2>
-      <div class="note" style="margin-bottom:8px">Removing a line in a Shopify order edit books a refund that moved $0, and Triple Whale counts it as real; the replacement line is counted as a new sale on the original order date. It happened on 19 Aug, 20 Aug and 24 Sep 2026 (found in Triple Whale's refunds table). You offset 19 Aug and 24 Sep by hand in Triple Whale; 20 Aug never was. "Corrected" takes the fake refunds off the edit days, takes the duplicate sales off the order dates (their cost added back) and removes your two manual offsets so nothing counts twice. Net effect on US profit: <b>${money(Object.values(corrDays).flat().reduce((x, c) => x + c.profit, 0))}</b>.</div>` +
-      tblWrap(`<table><thead><tr><th class="l">Date</th><th>Triple Whale profit</th><th>Correction</th><th>Corrected profit</th><th class="l">Why</th></tr></thead><tbody>${cd.map(([d, cs]) => cs.map(c => { const raw = (HL.stores[c.st].tw[d] || [0, 0, 0])[2] * k(c.st);
-        return `<tr><td class="l">${LAB.day(d)} ${FLAGS[c.st]}</td><td class="num ${raw < 0 ? 'bad' : ''}">${money(raw)}</td><td class="num ${c.profit < 0 ? 'bad' : 'good'}">${c.profit >= 0 ? '+' : ''}${money(c.profit)}</td><td class="num ${raw + c.profit < 0 ? 'bad' : ''}"><b>${money(raw + c.profit)}</b></td><td class="l" style="font-size:12px;white-space:normal">${c.notes.map(esc).join('<br>')}</td></tr>`; }).join('')).join('')}</tbody></table>`);
   }
 
   if (tab === 'customers') {
@@ -970,25 +1015,25 @@ function pHealth() {
       kp('LTV after 90 / 365 days', `${L90.r != null ? money(L90.r, 0) : '–'} / ${L365.r != null ? money(L365.r, 0) : '–'}`, 'revenue per new customer') + kp('LTV / CAC (365 days)', L365.g && C365 ? x2(L365.g / C365) : '–', `gross profit · 90 days: ${L90.g && C90 ? x2(L90.g / C90) : '–'}`) +
       kp('60-day reorder rate', pct(wsum('r60', 'n'), 1), 'customers who ordered again within 60 days') + kp('Repeat customers', pct(allN ? allRep / allN : null, 1), 'bought 2+ times, all time'), 175);
     // charts
-    const cr = (gc === 'week' ? CW : cust(gc)).filter(r => gc === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : gc === 'week' ? r.k >= monday(A) && r.k <= Bd : mIn(r.k, A, Bd));
-    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hcC', 'New vs returning customers', `orders per ${gc}`, lg([['New', '#b38b33'], ['Returning', '#3a80c4']]))}
+    const cr = cseries(gc, A, Bd);
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hcC', 'New vs returning customers', `orders per ${gc}`, lg([['New', '#b38b33'], ['Returning', '#3a80c4']]), 0, cs('New', int(cu.nc)) + cs('Returning', int(cu.o - cu.nc)))}
       ${card('hcG', 'Growth vs previous ' + gc, 'new vs returning orders', lg([['New', '#b38b33'], ['Returning', '#3a80c4']]))}
       ${card('hcA', 'CAC and first-order AOV', 'per month', lg([['First-order AOV', '#c7b48b'], ['CAC', '#cf4640'], ['First-order contribution', '#4fa37a']]))}
       ${card('hcM', 'aMER', 'new-customer revenue ÷ ad spend per month', '')}
       ${card('hcL', 'LTV curves', 'cumulative revenue per customer by months since first order, last 8 cohorts', '', 280)}
       ${card('hcR', 'Retention curve', '% of each cohort ordering in month N (month 1 onwards)', '', 280)}</div>`;
     mk1('hcC', {type:'bar', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[bar('New', cr.map(r => r.nc), '#b38b33'), bar('Returning', cr.map(r => r.o - r.nc), '#3a80c4')]}, options:opt(false, false)});
-    const allc = gc === 'week' ? CW : cust(gc), grw = (r, f) => { const i = allc.findIndex(x => x.k === r.k), p = allc[i - 1]; return p && f(p) ? +((f(r) / f(p) - 1) * 100).toFixed(0) : null; };
+    const allc = cseries(gc, first, Bd), grw = (r, f) => { const i = allc.findIndex(x => x.k === r.k), p = allc[i - 1]; return p && f(p) ? +((f(r) / f(p) - 1) * 100).toFixed(0) : null; };
     mk1('hcG', {type:'line', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[line('New', cr.map(r => grw(r, x => x.nc)), '#b38b33'), line('Returning', cr.map(r => grw(r, x => x.o - x.nc)), '#3a80c4')]}, options:pctOpt()});
     mk1('hcA', {type:'line', data:{labels:ums.map(u => SH.month(u.m)), datasets:[line('First-order AOV', ums.map(u => u.aov && +u.aov.toFixed(0)), '#c7b48b'), line('CAC', ums.map(u => u.cac && +u.cac.toFixed(0)), '#cf4640'), line('First-order contribution', ums.map(u => u.fc != null ? +u.fc.toFixed(0) : null), '#4fa37a')]}, options:opt(false, true)});
     mk1('hcM', {type:'bar', data:{labels:ums.map(u => SH.month(u.m)), datasets:[bar('aMER', ums.map(u => u.amer != null ? +u.amer.toFixed(2) : null), '#b38b33')]}, options:opt(false, false)});
     const lastC = [...lt.keys()].sort().filter(m => m <= addM(thisMonth, -1)).slice(-8), pal = ['#3a80c4', '#cf4640', '#b38b33', '#8f74d6', '#4fa37a', '#e08a3c', '#c7b48b', '#8a8a94'], KMAX = 12;
     mk1('hcL', {type:'line', data:{labels:Array.from({length:KMAX + 1}, (_, i) => 'M' + i), datasets:lastC.map((m, i) => { const b = coh.get(m) || {}, n = (lt.get(m) || {}).n || 1; let s = 0;
       return line(MON(m) + ' ' + m.slice(2, 4), Array.from({length:KMAX + 1}, (_, K) => { if (addM(m, K) > thisMonth) return null; s += b[K] ? b[K].rev : 0; return +(s / n).toFixed(0); }), pal[i]); })},
-      options:{...opt(false, true), plugins:{legend:{display:true, labels:{color:'#8a8a94', boxWidth:10, font:{size:10}}}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}}}}});
+      options:{...opt(false, true), plugins:{legend:{display:true, labels:{color:'#a3a3ad', boxWidth:10, font:TF}}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}}}}});
     mk1('hcR', {type:'line', data:{labels:Array.from({length:KMAX}, (_, i) => 'M' + (i + 1)), datasets:lastC.map((m, i) => { const b = coh.get(m) || {}, n = (lt.get(m) || {}).n || 1;
       return line(MON(m) + ' ' + m.slice(2, 4), Array.from({length:KMAX}, (_, K) => addM(m, K + 1) > thisMonth ? null : +((b[K + 1] ? b[K + 1].act : 0) / n * 100).toFixed(2)), pal[i]); })},
-      options:{...pctOpt(), plugins:{legend:{display:true, labels:{color:'#8a8a94', boxWidth:10, font:{size:10}}}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw}%`}}}}});
+      options:{...pctOpt(), plugins:{legend:{display:true, labels:{color:'#a3a3ad', boxWidth:10, font:TF}}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw}%`}}}}});
     // unit economics table
     h += `<h2 class="sec" style="margin-top:24px">Unit economics per month <small>HexClad: margin on order one · Ridge: aMER · payback in 3 to 6 months</small></h2>` + tblWrap(`<table><thead><tr><th class="l">Month</th><th>New customers</th><th>Ad spend</th><th>CAC</th><th>First-order AOV</th><th>AOV : CAC</th><th>First-order gross profit</th><th>Fulfilment & fees</th><th>First-order contribution</th><th>aMER</th><th>60-day reorder</th><th>Payback</th></tr></thead><tbody>
       ${ums.slice().reverse().map(u => `<tr${u.live ? ' style="opacity:.75"' : ''}><td class="l">${MONL(u.m)}${u.live ? ' <span class="muted">(running)</span>' : ''}</td><td class="num">${int(u.n)}</td><td class="num">${money(u.sp)}</td><td class="num">${u.cac != null ? money(u.cac, 0) : '–'}</td>
@@ -1009,17 +1054,17 @@ function pHealth() {
   }
 
   if (tab === 'margins') {
-    const cr = (gc === 'week' ? CW : cust(gc)).filter(r => gc === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : gc === 'week' ? r.k >= monday(A) && r.k <= Bd : mIn(r.k, A, Bd));
+    const cr = cseries(gc, A, Bd);
     const ful = mk.reduce((x, st) => x + ((HL.stores[st].ful || {}).perOrder || 0) * k(st) * (cu.o / mk.length), 0);
     h += grid(kp('Revenue', money(cu.rev), vs(cu.rev, ccu && ccu.rev)) + kp('COGS', money(cu.cogs), vs(cu.cogs, ccu && ccu.cogs, true)) + kp('COGS % of revenue', pct(cu.rev ? cu.cogs / cu.rev : null, 1), ccu && ccu.rev ? `${pct(ccu.cogs / ccu.rev, 1)} before` : '') +
       kp('Gross margin', pct(cu.rev ? 1 - cu.cogs / cu.rev : null, 0), 'after COGS') + kp('COGS per order', cu.o ? money(cu.cogs / cu.o, 2) : '–', `${int(cu.o)} orders`) + kp('MER', pct(tot.rev ? tot.sp / tot.rev : null, 1), 'ad spend ÷ revenue') + kp('Net margin', pct(tot.rev ? tot.pr / tot.rev : null, 1), 'after every cost Triple Whale knows'), 170);
-    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hmK', 'Revenue vs COGS', `${curCode()} per ${gc}`, lg([['Revenue', '#c7b48b'], ['COGS', '#cf4640']]))}${card('hmKp', 'COGS as % of revenue', 'lower is better', '')}
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hmK', 'Revenue vs COGS', `${curCode()} per ${gc}`, lg([['Revenue', '#c7b48b'], ['COGS', '#cf4640']]), 0, cs('Revenue', money(cu.rev)) + cs('COGS', money(cu.cogs)))}${card('hmKp', 'COGS as % of revenue', 'lower is better', '')}
       ${card('hmW', 'Where each dollar of revenue goes', `per ${g}, from the daily profit data`, lg([['Ad spend', '#3a80c4'], ['Profit', '#4fa37a'], ['Other costs (COGS, fees, shipping...)', '#8a8a94']]))}${card('hmN', 'Net margin and MER', `per ${g}`, lg([['Net margin', '#4fa37a'], ['MER (ad spend ÷ revenue)', '#3a80c4']]))}</div>`;
     mk1('hmK', {type:'line', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[line('Revenue', cr.map(r => +r.rev.toFixed(0)), '#c7b48b', {fill:true, backgroundColor:'rgba(199,180,139,.12)'}), line('COGS', cr.map(r => +r.cogs.toFixed(0)), '#cf4640', {fill:true, backgroundColor:'rgba(207,70,64,.15)'})]},
       options:{...opt(false, true), plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`, footer:it => it.length > 1 && it[0].raw ? 'COGS = ' + (it[1].raw / it[0].raw * 100).toFixed(1) + '% of revenue' : ''}}}}});
     mk1('hmKp', {type:'line', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[line('COGS %', cr.map(r => r.rev ? +(r.cogs / r.rev * 100).toFixed(1) : null), '#cf4640')]}, options:pctOpt()});
     mk1('hmW', {type:'bar', data:{labels:pr.map(b => SH[g](b.k)), datasets:[bar('Ad spend', pr.map(b => b.rev ? +(b.sp / b.rev * 100).toFixed(1) : null), '#3a80c4'), bar('Profit', pr.map(b => b.rev ? +(b.pr / b.rev * 100).toFixed(1) : null), '#4fa37a'),
-      bar('Other costs (COGS, fees, shipping...)', pr.map(b => b.rev ? +((b.rev - b.sp - b.pr) / b.rev * 100).toFixed(1) : null), '#8a8a94')]}, options:{...pctOpt(), scales:{x:{...ax(true).x}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', callback:v => v + '%'}}}}});
+      bar('Other costs (COGS, fees, shipping...)', pr.map(b => b.rev ? +((b.rev - b.sp - b.pr) / b.rev * 100).toFixed(1) : null), '#8a8a94')]}, options:{...pctOpt(), scales:{x:{...ax(true).x}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:yT(v => v + '%')}}}});
     mk1('hmN', {type:'line', data:{labels:pr.map(b => SH[g](b.k)), datasets:[line('Net margin', pr.map(b => b.rev ? +(b.pr / b.rev * 100).toFixed(1) : null), '#4fa37a'), line('MER', pr.map(b => b.rev ? +(b.sp / b.rev * 100).toFixed(1) : null), '#3a80c4')]}, options:pctOpt()});
     const rows = cr.slice().reverse();
     h += tblWrap(`<table><thead><tr><th class="l">${gc[0].toUpperCase() + gc.slice(1)}</th><th>Revenue</th><th>COGS</th><th>COGS %</th><th>Gross profit</th><th>Gross margin</th><th>Orders</th><th>COGS / order</th></tr></thead><tbody>${rows.map(r => `<tr><td class="l">${LAB[gc](r.k)}</td><td class="num">${money(r.rev)}</td><td class="num"><b>${money(r.cogs)}</b></td><td class="num">${r.rev ? pct(r.cogs / r.rev, 1) : '–'}</td><td class="num">${money(r.rev - r.cogs)}</td><td class="num">${r.rev ? pct(1 - r.cogs / r.rev, 0) : '–'}</td><td class="num">${int(r.o)}</td><td class="num">${r.o ? money(r.cogs / r.o, 2) : '–'}</td></tr>`).join('')}</tbody></table>`) +
@@ -1082,7 +1127,7 @@ function pHealth() {
       const cols = ['#cf4640', '#e08a3c', '#8a8a94', '#9bc27a', '#4fa37a'];
       mk1(id, {type:'bar', data:{labels:keys.map(m => SH.month(m)), datasets:[4, 3, 2, 1, 0].map(i => bar((i + 1) + ' star', keys.map(m => ms[m][i]), cols[i]))}, options:opt(true, false)});
       mk1(id + 'a', {type:'line', data:{labels:keys.map(m => SH.month(m)), datasets:[line('Average stars', keys.map(m => { if (cut && m < cut) return null; const a = ms[m], n = a.reduce((x, y) => x + y, 0); return n ? +(a.reduce((x, y, i) => x + y * (i + 1), 0) / n).toFixed(2) : null; }), '#c7b48b')]},
-        options:{...opt(false, false), scales:{x:ax(false).x, y:{min:1, max:5, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
+        options:{...opt(false, false), scales:{x:ax(false).x, y:{min:1, max:5, grid:{color:'#2a2a31'}, ticks:yT()}}}});
     }
     // score history (daily snapshots since the hub started tracking)
     const snaps = tp.map(t => Object.entries(t.hist || {}).sort());
@@ -1090,8 +1135,8 @@ function pHealth() {
       h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hrS', 'TrustScore over time', 'one snapshot per day since 10 Nov 2026', lg(tp.map((t, i) => [t.domain, i ? '#3a80c4' : '#cf4640'])), 220)}`;
       const jd = [...new Set(mk.flatMap(st => Object.keys(HL.stores[st].judgemeHist || {})))].sort();
       h += `${card('hrJ', 'Judge.me rating over time', 'one snapshot per day since 10 Nov 2026', lg(mk.map(st => [st, MKC[st]])), 220)}</div>`;
-      mk1('hrS', {type:'line', data:{labels:days.map(d => fmtD(d)), datasets:tp.map((t, i) => line(t.domain, days.map(d => (t.hist[d] || {}).s ?? null), i ? '#3a80c4' : '#cf4640'))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:3.5, max:5, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
-      mk1('hrJ', {type:'line', data:{labels:jd.map(d => fmtD(d)), datasets:mk.map(st => line(st, jd.map(d => ((HL.stores[st].judgemeHist || {})[d] || {}).r ?? null), MKC[st]))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:4.5, max:5, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
+      mk1('hrS', {type:'line', data:{labels:days.map(d => fmtD(d)), datasets:tp.map((t, i) => line(t.domain, days.map(d => (t.hist[d] || {}).s ?? null), i ? '#3a80c4' : '#cf4640'))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:3.5, max:5, grid:{color:'#2a2a31'}, ticks:yT()}}}});
+      mk1('hrJ', {type:'line', data:{labels:jd.map(d => fmtD(d)), datasets:mk.map(st => line(st, jd.map(d => ((HL.stores[st].judgemeHist || {})[d] || {}).r ?? null), MKC[st]))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:4.5, max:5, grid:{color:'#2a2a31'}, ticks:yT()}}}});
     }
     h += tblWrap(`<table><thead><tr><th class="l">Judge.me</th><th>Rating</th><th>Product reviews</th><th>Products with reviews</th></tr></thead><tbody>${mk.map(st => { const j = HL.stores[st].judgeme || {}; return `<tr><td class="l">${FLAGS[st]} ${st}</td><td class="num">${j.rating ? j.rating.toFixed(2) : '–'}</td><td class="num">${int(j.reviews)}</td><td class="num">${int(j.products)}</td></tr>`; }).join('')}</tbody></table>`);
     h += tp.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px">${tp.map(t => `<div class="card" style="padding:16px"><div style="display:flex;justify-content:space-between"><b>${esc(t.domain)}</b><span class="num" style="font-size:22px">${t.score != null ? t.score.toFixed(1) : '–'}</span></div><div class="muted" style="font-size:12px;margin-bottom:10px">${int(t.n)} reviews</div>
@@ -1103,9 +1148,10 @@ function pHealth() {
   afterRender.push(() => {
     $('#view').querySelectorAll('[data-ht]').forEach(b => b.onclick = () => { S.ht = b.dataset.ht; render(); });
     for (const id of ['hg', 'hlm', 'hz', 'hcmp', 'hcor']) { const t = $('#' + id); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S[id] = bt.dataset.v; render(); } }; }
-    const hp = $('#hpre'); if (hp) hp.onclick = ev => { const bt = ev.target.closest('button'); if (!bt) return; S.hpre = bt.dataset.v; if (bt.dataset.v === 'custom') { S.hfrom = A; S.hto = Bd; } S.hg = null; render(); };
-    const dch = () => { const f = $('#hfrom').value, t = $('#hto').value; if (f && t && f <= t) { S.hpre = 'custom'; S.hfrom = f; S.hto = t; S.hg = null; render(); } };
-    const hf = $('#hfrom'), ht = $('#hto'); if (hf) hf.onchange = dch; if (ht) ht.onchange = dch;
+    const tog = (el, cfg) => { if (el) el.onclick = e => { const d = $('#dp'); if (d && d.classList.contains('open') && DP.btn === e.currentTarget) dpClose(); else dpOpen(e.currentTarget, cfg()); }; };
+    tog($('#hRange'), () => ({title:'Date range', presets:HPRE, cur:pre, a:A, b:Bd, min:first, pick:v => { S.hpre = v; S.hg = null; },
+      apply:(x, y) => { const m = HPRE.find(([v]) => v !== '-' && v !== 'all' && hRange(v, first).join() === x + ',' + y); S.hpre = m ? m[0] : 'custom'; S.hfrom = x; S.hto = y; S.hg = null; }}));
+    tog($('#hCmp'), () => ({title:'Compare to', presets:HCMP, cur:cmp, a:CA || A, b:CB || Bd, min:first, pick:v => { S.hcmp = v; }, apply:(x, y) => { S.hcmp = 'custom'; S.hca = x; S.hcb = y; }}));
     $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { const kk = el.dataset.more; if (kk === 'p') S.hpAll = g + A + Bd; if (kk === 'co') S.hcoAll = true; render(); });
     after.forEach(f => f());
   });
