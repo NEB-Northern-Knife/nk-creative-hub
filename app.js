@@ -110,7 +110,7 @@ function money(v, dec) {
   else s = Math.round(a).toLocaleString('en-US');
   return (v < 0 ? '-' : '') + sym + s;
 }
-const x2 = v => (isFinite(v) && v >= 0) ? v.toFixed(2) : '–';
+const x2 = v => (v != null && isFinite(v) && v >= 0) ? v.toFixed(2) : '–';
 const pct = (v, d = 1) => (v != null && isFinite(v)) ? (v * 100).toFixed(d) + '%' : '–';
 const int = v => Math.round(v || 0).toLocaleString('en-US');
 const initials = n => n.split(/[\s×]+/).filter(Boolean).map(x => x[0]).join('').slice(0, 2).toUpperCase();
@@ -796,243 +796,318 @@ function pReports() {
   }));
   return h;
 }
-/* ---------------- business health (Andy, 2026-11-10: OWNER ONLY) ---------------- */
+/* ---------------- business health (Andy, 2026-11-10: OWNER ONLY, tabs per department) ---------------- */
 const MKC = {US:'#3a80c4', UK:'#cf4640', AU:'#b38b33', CA:'#8f74d6', DE:'#4fa37a', NL:'#e08a3c'};
+const HTABS = [['overview','Overview'],['profit','Daily profit'],['customers','Customers & LTV'],['margins','Margins & COGS'],['email','Email'],['support','Customer service'],['reviews','Reviews']];
+const HPRE = [['m','This month'],['lm','Last month'],['3m','Last 3 months'],['12m','Last 12 months'],['ytd','This year'],['ly','Last year'],['all','Since day one'],['custom','Custom']];
 function pHealth() {
   if (ACCESS !== 'owner' || !HL) return `<div class="page-head"><div><div class="kicker">Owner only</div><h1>Business health</h1></div></div><div class="empty">This page needs the owner password.</div>`;
   const mk = (S.market === 'ALL' ? Object.keys(HL.stores) : [S.market]).filter(st => HL.stores[st]);
-  const g = S.hg || 'month', gc = g === 'day' ? 'week' : g; // customers + COGS have no daily view
+  const today = D.today, thisMonth = today.slice(0, 7), tab = S.ht || 'overview';
+  const ZS = {s:{h:.75, bar:14, fs:12}, m:{h:1, bar:30, fs:13}, l:{h:1.5, bar:64, fs:15}}, hz = S.hz || 'm', Z = ZS[hz], H = px => Math.round(px * Z.h);
+  const addM = (m, n) => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); };
+  const mEnd = m => iso(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0)));
+  const corrOn = (S.hcor || 'fixed') === 'fixed';
+
+  // ---------- daily series: sheet, then Triple Whale; US order-edit days corrected unless "raw"
+  const daily = {}, corrDays = {};
+  for (const st of mk) { const o = HL.stores[st], c = k(st);
+    for (const [d, v] of Object.entries(o.sheet || {})) (daily[d] || (daily[d] = {}))[st] = [v[0] * c, v[1] * c, v[2] * c, 'S', null];
+    for (const [d, v] of Object.entries(o.tw || {})) (daily[d] || (daily[d] = {}))[st] = [v[0] * c, v[1] * c, v[2] * c, 'T', (v[3] || 0) * c];
+    for (const x of o.corr || []) { if (!daily[x.d] || !daily[x.d][st]) continue; (corrDays[x.d] || (corrDays[x.d] = [])).push({st, ...x, profit:x.profit * c, rev:x.rev * c});
+      if (corrOn) { daily[x.d][st][0] += x.rev * c; daily[x.d][st][2] += x.profit * c; } }
+  }
+  const dates = Object.keys(daily).sort(), first = dates[0] || today;
+  // ---------- date range + comparison (own controls, independent of the hub's weekly presets)
+  const pre = S.hpre || '12m';
+  const rng = (() => { const m0 = thisMonth.slice(0, 7);
+    if (pre === 'm') return [m0 + '-01', today]; if (pre === 'lm') { const m = addM(m0, -1); return [m + '-01', mEnd(m)]; }
+    if (pre === '3m') return [addM(m0, -2) + '-01', today]; if (pre === '12m') return [addM(m0, -11) + '-01', today];
+    if (pre === 'ytd') return [today.slice(0, 4) + '-01-01', today]; if (pre === 'ly') { const y = +today.slice(0, 4) - 1; return [y + '-01-01', y + '-12-31']; }
+    if (pre === 'custom' && S.hfrom && S.hto) return [S.hfrom, S.hto]; return [first, today]; })();
+  const [A, Bd] = rng, cmp = S.hcmp || 'prev';
+  const span = nDays(A, Bd);
+  const [CA, CB] = cmp === 'yoy' ? [(+A.slice(0, 4) - 1) + A.slice(4), (+Bd.slice(0, 4) - 1) + Bd.slice(4)] : cmp === 'prev' ? [addD(A, -span), addD(A, -1)] : [null, null];
+  const inR = (d, a, b) => a && d >= a && d <= b, mIn = (m, a, b) => a && m >= a.slice(0, 7) && m <= b.slice(0, 7);
+  const g = S.hg || (span <= 62 ? 'day' : span <= 200 ? 'week' : 'month'), gc = g === 'day' ? 'week' : g;
   const KEY = {day:d => d, week:d => monday(d), month:d => d.slice(0, 7), year:d => d.slice(0, 4)};
   const LAB = {day:d => P(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short', year:'2-digit', timeZone:'UTC'}),
     week:d => 'w/c ' + P(d).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'2-digit', timeZone:'UTC'}), month:d => MONL(d), year:d => d};
-  const today = D.today, thisMonth = today.slice(0, 7);
-  const ZS = {s:{h:.75, bar:14, fs:12}, m:{h:1, bar:30, fs:13}, l:{h:1.5, bar:64, fs:15}}, hz = S.hz || 'm', Z = ZS[hz], H = px => Math.round(px * Z.h);
+  const SH = {day:d => fmtD(d), week:d => fmtD(d), month:d => MON(d) + ' ' + d.slice(2, 4), year:d => d};
   const sgn = (v, d = 0) => `<span class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '▲ +' : '▼ '}${(v * 100).toFixed(d)}%</span>`;
-  const gr = (c, p) => p ? sgn(c / p - 1) : '<span class="muted">–</span>';
+  const vs = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null) return '<span class="muted">no comparison</span>'; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
+    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(1)}%</span> <span class="muted">vs ${cmp === 'yoy' ? 'last year' : 'previous period'}</span>`; };
   const tabs = (id, cur, opts) => `<div class="tabs-mini" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-  const more = (id, n, shown) => n > shown ? `<button class="btn ghost sm" data-more="${id}" style="margin-top:10px">Show all ${n} rows</button>` : '';
+  const kp = (lbl, val, sub, cls = '', tip = '') => `<div class="card kpi"${tip ? ` title="${esc(tip)}"` : ''}><div class="lbl">${lbl}</div><div class="val num ${cls}">${val}</div><div class="delta">${sub}</div></div>`;
+  const grid = (html, min = 190) => `<div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(${min}px,1fr));gap:12px;margin-top:12px">${html}</div>`;
+  const card = (id, title, sub, legend, hpx) => `<div class="card chart-card"><h3>${title}</h3>${sub ? `<div class="sub">${sub}</div>` : ''}${legend ? `<div class="legend">${legend}</div>` : ''}<div class="chart-wrap" style="height:${H(hpx || 250)}px"><canvas id="${id}"></canvas></div></div>`;
+  const lg = arr => arr.map(([l, c]) => `<span><i style="background:${c}"></i>${l}</span>`).join('');
+  const more = (key, n, shown) => n > shown ? `<button class="btn ghost sm" data-more="${key}" style="margin-top:10px">Show all ${n} rows</button>` : '';
+  const tblWrap = inner => `<div class="tbl-wrap" style="margin-top:12px">${inner}</div>`;
 
-  // daily revenue / spend / profit, displayed currency: sheet first, Triple Whale after the sheet ends
-  const daily = {};
-  for (const st of mk) { const o = HL.stores[st], c = k(st);
-    for (const [d, v] of Object.entries(o.sheet || {})) (daily[d] || (daily[d] = {}))[st] = [v[0] * c, v[1] * c, v[2] * c, 'S'];
-    for (const [d, v] of Object.entries(o.tw || {})) (daily[d] || (daily[d] = {}))[st] = [v[0] * c, v[1] * c, v[2] * c, 'T'];
-  }
-  const dates = Object.keys(daily).sort(), first = dates[0] || today;
-  const bucket = (keyf) => { const out = new Map();
-    for (const d of dates) { const kk = keyf(d); const b = out.get(kk) || {k:kk, st:{}, rev:0, sp:0, pr:0, src:new Set()};
-      for (const [st, v] of Object.entries(daily[d])) { const x = b.st[st] || (b.st[st] = {rev:0, sp:0, pr:0}); x.rev += v[0]; x.sp += v[1]; x.pr += v[2]; b.rev += v[0]; b.sp += v[1]; b.pr += v[2]; b.src.add(v[3]); }
-      out.set(kk, b); }
-    return [...out.values()]; };
-  const pb = bucket(KEY[g]);
-  const sum = (a, b) => dates.filter(d => d >= a && d <= b).reduce((x, d) => x + Object.values(daily[d]).reduce((y, v) => y + v[2], 0), 0);
-  const life = sum('0000', today), ytd = sum(today.slice(0, 4) + '-01-01', today), lyStart = (+today.slice(0, 4) - 1) + '-01-01', lytd = sum(lyStart, (+today.slice(0, 4) - 1) + today.slice(4));
-  const spendIn = (a, b) => dates.filter(d => d >= a && d <= b).reduce((x, d) => x + Object.values(daily[d]).reduce((y, v) => y + v[1], 0), 0);
-
-  // customers: months / weeks from Triple Whale orders
+  // ---------- aggregations
+  const sumDays = (a, b, i) => { let s = 0; if (!a) return null; for (const d of dates) if (d >= a && d <= b) for (const v of Object.values(daily[d])) s += v[i]; return s; };
+  const bucket = (a, b, keyf) => { const out = new Map(); for (const d of dates) { if (d < a || d > b) continue; const kk = keyf(d); const x = out.get(kk) || {k:kk, st:{}, rev:0, sp:0, pr:0, cogs:0, src:new Set(), fix:false};
+      for (const [st, v] of Object.entries(daily[d])) { const y = x.st[st] || (x.st[st] = {rev:0, sp:0, pr:0}); y.rev += v[0]; y.sp += v[1]; y.pr += v[2]; x.rev += v[0]; x.sp += v[1]; x.pr += v[2]; x.cogs += v[4] || 0; x.src.add(v[3]); }
+      if (corrDays[d]) x.fix = true; out.set(kk, x); } return [...out.values()]; };
   const crow = (st, r) => { const c = k(st); return {o:r[1], nc:r[2], rev:r[3] * c, ncrev:r[4] * c, cogs:r[5] * c}; };
-  const cust = (gran) => { const out = new Map();
-    for (const st of mk) { const o = HL.stores[st]; const src = gran === 'week' ? o.weeks : (o.months || []);
-      for (const r of src || []) { const kk = gran === 'year' ? r[0].slice(0, 4) : r[0]; const x = crow(st, r); const b = out.get(kk) || {k:kk, o:0, nc:0, rev:0, ncrev:0, cogs:0};
-        for (const f in x) b[f] += x[f]; out.set(kk, b); } }
+  const cust = gran => { const out = new Map(); for (const st of mk) { const o = HL.stores[st]; for (const r of (gran === 'week' ? o.weeks : o.months) || []) {
+      const kk = gran === 'year' ? r[0].slice(0, 4) : r[0]; const x = crow(st, r); const b = out.get(kk) || {k:kk, o:0, nc:0, rev:0, ncrev:0, cogs:0}; for (const f in x) b[f] += x[f]; out.set(kk, b); } }
     return [...out.values()].sort((x, y) => x.k < y.k ? -1 : 1); };
-  const cm = cust('month'), cb = cust(gc);
-  const ncIn = (a, b) => cm.filter(r => r.k >= a.slice(0, 7) && r.k <= b.slice(0, 7)).reduce((x, r) => x + r.nc, 0);
-
-  // LTV: first-order-month cohorts, weighted by customers who have had the full window
+  const CM = cust('month'), CW = cust('week');
+  const custIn = (a, b) => { const r = {o:0, nc:0, rev:0, ncrev:0, cogs:0}; if (!a) return null; for (const x of CM) if (mIn(x.k, a, b)) for (const f in r) r[f] += x[f]; return r; };
   const lt = new Map();
-  for (const st of mk) { const c = k(st);
-    const fpo = ((HL.stores[st].ful || {}).perOrder || 0) * c;
-    for (const r of HL.stores[st].ltv || []) { const b = lt.get(r.m) || {m:r.m, n:0, rall:0, gall:0, rep:0, ord:0, rep60:0, m60:0, ful:0};
-      b.n += r.n; b.rep60 += r.rep60 || 0; b.m60 += r.m60 || 0; b.ful += r.n * fpo; b.rall += r.rall * r.n * c; b.gall += r.gall * r.n * c; b.rep += r.rep; b.ord += r.ord * r.n;
-      for (const w of [0, 30, 90, 180, 365]) { if (r['m' + w]) { b['r' + w] = (b['r' + w] || 0) + r['r' + w] * r['m' + w] * c; b['g' + w] = (b['g' + w] || 0) + r['g' + w] * r['m' + w] * c; b['m' + w] = (b['m' + w] || 0) + r['m' + w]; } }
+  for (const st of mk) { const c = k(st), fpo = ((HL.stores[st].ful || {}).perOrder || 0) * c;
+    for (const r of HL.stores[st].ltv || []) { const b = lt.get(r.m) || {m:r.m, n:0, rall:0, gall:0, rep:0, rep60:0, m60:0, ful:0};
+      b.n += r.n; b.rall += r.rall * r.n * c; b.gall += r.gall * r.n * c; b.rep += r.rep; b.rep60 += r.rep60 || 0; b.m60 += r.m60 || 0; b.ful += r.n * fpo;
+      for (const w of [0, 30, 90, 180, 365]) if (r['m' + w]) { b['r' + w] = (b['r' + w] || 0) + r['r' + w] * r['m' + w] * c; b['g' + w] = (b['g' + w] || 0) + r['g' + w] * r['m' + w] * c; b['m' + w] = (b['m' + w] || 0) + r['m' + w]; }
       lt.set(r.m, b); } }
-  const addM = (m, n) => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); };
-  const win = (w, from, to) => { let n = 0, r = 0, gp = 0, ms = []; for (const b of lt.values()) if (b.m >= from && b.m <= to && b['m' + w]) { n += b['m' + w]; r += b['r' + w]; gp += b['g' + w]; ms.push(b.m); }
-    return {n, r:n ? r / n : null, g:n ? gp / n : null, from, to}; };
-  const L365 = win(365, addM(thisMonth, -24), addM(thisMonth, -13)), L90 = win(90, addM(thisMonth, -15), addM(thisMonth, -4));
-  const cacOf = (from, to) => { const nc = ncIn(from + '-01', to + '-31'); return nc ? spendIn(from + '-01', to + '-31') / nc : null; };
-  const C365 = cacOf(L365.from, L365.to), C90 = cacOf(L90.from, L90.to);
-  const cac90d = (() => { const a = addD(today, -89); const nc = cb.length ? cust('week').filter(r => r.k >= monday(a)).reduce((x, r) => x + r.nc, 0) : 0; return nc ? spendIn(a, today) / nc : null; })();
-  let allN = 0, allRep = 0; for (const b of lt.values()) { allN += b.n; allRep += b.rep; }
-  const m90 = cm.filter(r => r.k >= addM(thisMonth, -2)), rcShare = m90.reduce((x, r) => x + r.o, 0) ? m90.reduce((x, r) => x + r.o - r.nc, 0) / m90.reduce((x, r) => x + r.o, 0) : null;
-  const ratio = (l, c) => l && c ? l / c : null, rx = v => v == null ? '–' : x2(v), rq = v => v == null ? '' : v >= 3 ? 'good' : v >= 1 ? '' : 'bad';
-  const mrange = (a, b) => `${MON(a)} ${a.slice(2, 4)} to ${MON(b)} ${b.slice(2, 4)}`;
-
-  let h = freshBar() + `<div class="page-head"><div><div class="kicker">Owner only · nobody else can open this page or its data</div><h1>Business health</h1></div>
-    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined' : S.market} · ${curCode()} · since ${fmtD(first)} ${first.slice(0, 4)}
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;justify-content:flex-end"><span class="muted" style="font-size:11px">View size</span>${tabs('hz', hz, [['s','Compact'],['m','Normal'],['l','Large']])}</div></div></div><div class="hz" style="--hfs:${Z.fs}px">`;
-  const kp = (lbl, val, sub, cls = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num ${cls}">${val}</div><div class="delta">${sub}</div></div>`;
-  const tp = HL.trust || [];
-  h += `<div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
-    ${kp('Profit since day one', money(life), `${mk.length > 1 ? mk.length + ' markets' : S.market} since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}`, life >= 0 ? 'good' : 'bad')}
-    ${kp('Profit this year', money(ytd), `${gr(ytd, lytd)} vs same days last year (${money(lytd)})`, ytd >= 0 ? 'good' : 'bad')}
-    ${kp('LTV after 365 days', L365.r != null ? money(L365.r, 0) : '–', `gross profit ${L365.g != null ? money(L365.g, 0) : '–'} · customers from ${mrange(L365.from, L365.to)}`)}
-    ${kp('LTV after 90 days', L90.r != null ? money(L90.r, 0) : '–', `gross profit ${L90.g != null ? money(L90.g, 0) : '–'} · customers from ${mrange(L90.from, L90.to)}`)}
-    ${kp('CAC', cac90d != null ? money(cac90d, 0) : '–', 'ad spend ÷ new customers, last 90 days')}
-    ${kp('LTV / CAC (365 days)', rx(ratio(L365.g, C365)), `gross-profit LTV ÷ CAC of the same months (${C365 != null ? money(C365, 0) : '–'}) · revenue LTV ÷ CAC ${rx(ratio(L365.r, C365))}`, rq(ratio(L365.g, C365)))}
-    ${kp('LTV / CAC (90 days)', rx(ratio(L90.g, C90)), `gross profit · CAC ${C90 != null ? money(C90, 0) : '–'} · revenue LTV ÷ CAC ${rx(ratio(L90.r, C90))}`, rq(ratio(L90.g, C90)))}
-    ${kp('Repeat customers', pct(allN ? allRep / allN : null), `bought 2+ times · returning = ${pct(rcShare, 0)} of orders, last 3 months`)}
-    ${tp.map(t => kp('Trustpilot ' + (t.domain.endsWith('.co.uk') ? '🇬🇧 .co.uk' : '🇺🇸 .com'), `${t.score != null ? t.score.toFixed(1) : '–'} <small style="font-size:14px;color:var(--muted)">/ 5</small>`,
-      `${int(t.n)} reviews · ${t.dist ? Math.round(t.dist[4] / t.n * 100) + '% five-star, ' + Math.round(t.dist[0] / t.n * 100) + '% one-star' : ''}`, t.score >= 4 ? 'good' : 'bad')).join('')}
-  </div>`;
-  const ends = mk.map(st => HL.stores[st].sheetEnd ? `${FLAGS[st]} ${fmtD(HL.stores[st].sheetEnd)} ${HL.stores[st].sheetEnd.slice(2, 4)}` : '').filter(Boolean).join(' · ');
-  h += `<div class="note" style="margin-top:10px">Profit comes from your Calcul Profit sheet up to the last day filled per market (${ends}), then Triple Whale net profit (same as HQ, Australia's custom expenses added back). LTV, cohorts, new vs returning and COGS come from Triple Whale orders since 2022. LTV = order revenue per new customer, counted only for customers who have had the full 90 or 365 days. CAC = ad spend ÷ new customers. ${S.market === 'ALL' ? 'Combined figures are in USD at today\'s rates.' : ''}</div>`;
-
-  // ---- unit economics, the operator scoreboard (HexClad: real margin on the first order; Ridge: aMER; 3-6 month payback)
   const coh = new Map(); for (const st of mk) { const c = k(st); for (const [m, kk, act, rev, gp] of HL.stores[st].cohort || []) { const b = coh.get(m) || {}; const x = b[kk] || (b[kk] = {rev:0, gp:0, act:0}); x.rev += rev * c; x.gp += gp * c; x.act += act; coh.set(m, b); } }
-  const ue = [...lt.keys()].sort().filter(m => m >= addM(thisMonth, -17)).reverse().map(m => { const b = lt.get(m), mo = cm.find(r => r.k === m) || {nc:0, ncrev:0};
-    const sp = spendIn(m + '-01', m + '-31'), cac = mo.nc && sp ? sp / mo.nc : null, ful = b.n ? b.ful / b.n : 0;
-    const aov = b.m0 ? b.r0 / b.m0 : null, gp0 = b.m0 ? b.g0 / b.m0 : null, fc = gp0 != null && cac != null ? gp0 - ful - cac : null;
-    let pay = null, rec = null, cg = 0, ca = 0; const cc = coh.get(m) || {};
+  const ltvWin = (w, from, to) => { let n = 0, r = 0, gp = 0; for (const b of lt.values()) if (b.m >= from && b.m <= to && b['m' + w]) { n += b['m' + w]; r += b['r' + w]; gp += b['g' + w]; } return {n, r:n ? r / n : null, g:n ? gp / n : null}; };
+  const cacIn = (a, b) => { const c = custIn(a, b), sp = sumDays(a, b, 1); return c && c.nc && sp ? sp / c.nc : null; };
+  const ue = m => { const b = lt.get(m); if (!b) return null; const mo = CM.find(r => r.k === m) || {nc:0, ncrev:0}, sp = sumDays(m + '-01', mEnd(m), 1), cac = mo.nc && sp ? sp / mo.nc : null, ful = b.n ? b.ful / b.n : 0;
+    const aov = b.m0 ? b.r0 / b.m0 : null, gp0 = b.m0 ? b.g0 / b.m0 : null; let pay = null, rec = null, cg = 0, ca = 0; const cc = coh.get(m) || {};
     for (let K = 0; K <= 36 && addM(m, K) <= thisMonth; K++) { cg += cc[K] ? cc[K].gp : 0; ca += cc[K] ? cc[K].act : 0; const per = b.n ? (cg - ful * ca) / b.n : 0; rec = cac ? per / cac : null; if (cac && per >= cac) { pay = K; break; } }
-    return {m, n:mo.nc || b.n, sp, cac, aov, gp0, ful, fc, amer:sp ? mo.ncrev / sp : null, r60:b.m60 ? b.rep60 / b.m60 : null, pay, rec, live:m === thisMonth}; });
-  const full = ue.filter(u => !u.live), lm = full[0] || {}, r60w = (() => { let a = 0, n = 0; for (const b of lt.values()) if (b.m >= addM(thisMonth, -5) && b.m <= addM(thisMonth, -3)) { a += b.rep60; n += b.m60; } return n ? a / n : null; })();
-  const paid = full.slice(3, 9).filter(u => u.pay != null && u.pay <= 3).length;
-  h += `<h2 class="sec" style="margin-top:26px">Unit economics <small>the scoreboard HexClad, Ridge and Jones Road run on</small></h2>
-    <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:10px">
-    ${kp('First-order contribution', lm.fc != null ? money(lm.fc, 0) : '–', `per new customer, ${MONL(lm.m || thisMonth)}: first-order gross profit − fulfilment & fees − CAC`, lm.fc >= 0 ? 'good' : 'bad')}
-    ${kp('First-order AOV : CAC', lm.aov && lm.cac ? x2(lm.aov / lm.cac) : '–', `AOV ${lm.aov ? money(lm.aov, 0) : '–'} vs CAC ${lm.cac ? money(lm.cac, 0) : '–'} · HexClad: make real margin on order one`, lm.aov && lm.cac && lm.aov / lm.cac >= 2 ? 'good' : '')}
-    ${kp('aMER', lm.amer != null ? x2(lm.amer) : '–', `new-customer revenue ÷ ad spend, ${MONL(lm.m || thisMonth)} · Ridge optimises this, not AOV`)}
-    ${kp('60-day reorder rate', pct(r60w, 1), `customers who ordered again within 60 days (first order ${MON(addM(thisMonth, -5))} to ${MON(addM(thisMonth, -3))}) · HexClad's offer test metric`)}
-    ${kp('Payback ≤ 3 months', `${paid} / ${full.slice(3, 9).length}`, 'cohorts 4 to 9 months old that earned back their CAC in gross profit within 3 months · rule: 3 to 6 months', paid >= 4 ? 'good' : paid >= 2 ? '' : 'bad')}
-    </div>
-    <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Month</th><th>New customers</th><th>Ad spend</th><th>CAC</th><th>First-order AOV</th><th>AOV : CAC</th><th>First-order gross profit</th><th>Fulfilment & fees</th><th>First-order contribution</th><th>aMER</th><th>60-day reorder</th><th>Payback</th></tr></thead><tbody>
-    ${ue.map(u => `<tr${u.live ? ' style="opacity:.75"' : ''}><td class="l">${MONL(u.m)}${u.live ? ' <span class="muted">(running)</span>' : ''}</td><td class="num">${int(u.n)}</td><td class="num">${money(u.sp)}</td><td class="num">${u.cac != null ? money(u.cac, 0) : '–'}</td>
-      <td class="num">${u.aov != null ? money(u.aov, 0) : '–'}</td><td class="num ${u.aov && u.cac ? (u.aov / u.cac >= 2 ? 'good' : u.aov / u.cac < 1.3 ? 'bad' : '') : ''}">${u.aov && u.cac ? x2(u.aov / u.cac) : '–'}</td>
-      <td class="num">${u.gp0 != null ? money(u.gp0, 0) : '–'}</td><td class="num">${money(u.ful, 0)}</td><td class="num ${u.fc == null ? '' : u.fc >= 0 ? 'good' : 'bad'}"><b>${u.fc != null ? money(u.fc, 0) : '–'}</b></td>
-      <td class="num">${u.amer != null ? x2(u.amer) : '–'}</td><td class="num">${u.r60 != null && !u.live ? pct(u.r60, 1) : '–'}</td>
-      <td class="num ${u.pay == null ? '' : u.pay <= 3 ? 'good' : u.pay <= 6 ? '' : 'bad'}">${u.pay === 0 ? 'first order' : u.pay != null ? u.pay + ' mo' : u.rec != null ? '<span class="muted">' + pct(Math.max(0, u.rec), 0) + ' back</span>' : '–'}</td></tr>`).join('')}
-    </tbody></table></div>
-    <div class="note">Fulfilment & fees = Triple Whale handling fees + payment gateway costs per order over the last 12 months (${mk.map(st => `${st} ${money(((HL.stores[st].ful || {}).perOrder || 0) * k(st), 2)}`).join(' · ')}). Gross profit = order revenue − COGS. Payback counts every later order's gross profit minus its fulfilment, until it covers CAC. Benchmarks from the operators: durables make money on order one (HexClad), payback in 3 to 6 months, LTV:CAC 3x over 3 years.</div>`;
+    return {m, n:mo.nc || b.n, sp, cac, aov, gp0, ful, fc:gp0 != null && cac != null ? gp0 - ful - cac : null, amer:sp ? mo.ncrev / sp : null, r60:b.m60 ? b.rep60 / b.m60 : null, pay, rec, live:m === thisMonth}; };
+  const months = (a, b) => monthsIn(a, b);
 
-  // ---- profit
-  const ph = g === 'day' ? pb.slice(-120) : pb, showAllP = S.hpAll === g;
-  h += `<div class="chart-top" style="margin-top:22px"><h2 class="sec" style="margin:0">Profit ${g === 'day' ? 'per day' : 'per ' + g} <small>${mk.length > 1 ? 'every market + combined' : S.market}</small></h2>${tabs('hg', g, [['day','Day'],['week','Week'],['month','Month'],['year','Year']])}</div>
-    <div class="card chart-card" style="margin-top:10px">${mk.length > 1 ? `<div class="legend">${mk.map(st => `<span><i style="background:${MKC[st]}"></i>${st}</span>`).join('')}</div>` : ''}<div class="sub">${g === 'day' ? 'last 120 days in the chart, every day in the table' : ''}</div><div class="chart-wrap" style="height:${H(300)}px"><canvas id="hP"></canvas></div></div>`;
-  const prow = pb.slice().reverse(), pshow = showAllP ? prow : prow.slice(0, g === 'day' ? 62 : g === 'week' ? 26 : 24);
-  h += `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${g[0].toUpperCase() + g.slice(1)}</th>${mk.length > 1 ? mk.map(st => `<th>${FLAGS[st]} ${st}</th>`).join('') : ''}<th>${mk.length > 1 ? 'Combined profit' : 'Profit'}</th><th>Revenue</th><th>Ad spend</th><th>Margin</th><th>Source</th></tr></thead><tbody>
-    ${pshow.map(b => `<tr><td class="l">${LAB[g](b.k)}</td>${mk.length > 1 ? mk.map(st => `<td class="num ${b.st[st] && b.st[st].pr < 0 ? 'bad' : ''}">${b.st[st] ? money(b.st[st].pr) : '<span class="muted">–</span>'}</td>`).join('') : ''}<td class="num ${b.pr < 0 ? 'bad' : 'good'}"><b>${money(b.pr)}</b></td><td class="num">${money(b.rev)}</td><td class="num">${money(b.sp)}</td><td class="num">${b.rev ? pct(b.pr / b.rev, 0) : '–'}</td><td class="muted" style="font-size:11px">${[...b.src].map(x => x === 'S' ? 'Sheet' : 'TW').join(' + ')}</td></tr>`).join('')}
-    </tbody></table></div>${showAllP ? '' : more('p', prow.length, pshow.length)}`;
+  // ---------- header + controls
+  let h = freshBar() + `<div class="page-head"><div><div class="kicker">Owner only · nobody else can open this page or its data</div><h1>Business health</h1></div>
+    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined (USD)' : S.market + ' · ' + curCode()} · data since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}</div></div>
+    <div class="htabs">${HTABS.map(([v, l]) => `<button data-ht="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="hbar card">
+      <div class="seg" id="hpre">${HPRE.map(([v, l]) => `<button data-v="${v}" class="${pre === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <label class="hdate">From <input type="date" id="hfrom" value="${A}" min="${first}" max="${today}"></label><label class="hdate">To <input type="date" id="hto" value="${Bd}" min="${first}" max="${today}"></label>
+      <span class="hsep"></span><span class="muted" style="font-size:11px">Compare</span>${tabs('hcmp', cmp, [['prev','Previous period'],['yoy','Last year'],['none','None']])}
+      <span class="hsep"></span><span class="muted" style="font-size:11px">Per</span>${tabs('hg', g, [['day','Day'],['week','Week'],['month','Month'],['year','Year']])}
+      <span class="hsep"></span><span class="muted" style="font-size:11px">Size</span>${tabs('hz', hz, [['s','S'],['m','M'],['l','L']])}
+      <div class="muted" style="width:100%;font-size:12px;margin-top:4px">${fmtD(A)} ${A.slice(0, 4)} to ${fmtD(Bd)} ${Bd.slice(0, 4)} (${span} days)${CA ? ` · compared with ${fmtD(CA)} ${CA.slice(0, 4)} to ${fmtD(CB)} ${CB.slice(0, 4)}` : ''}</div>
+    </div><div class="hz" style="--hfs:${Z.fs}px">`;
+  const after = [];
+  const ax = (stacked, money_) => ({x:{stacked, grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:12, font:{size:10}}},
+    y:{stacked, beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => money_ ? money(v) : (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v)}}});
+  const opt = (stacked, money_, extra = {}) => ({responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, ...(money_ ? {callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}} : {})}}, scales:ax(stacked, money_), ...extra});
+  const pctOpt = (extra = {}) => ({responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw == null ? '–' : c.raw + '%'}`}}},
+    scales:{x:ax(false).x, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => v + '%'}}}, ...extra});
+  const line = (label, data, col, ex = {}) => ({type:'line', label, data, borderColor:col, backgroundColor:col, borderWidth:2, pointRadius:hz === 'l' ? 3 : 1.5, tension:.25, ...ex});
+  const bar = (label, data, col, ex = {}) => ({label, data, backgroundColor:col, borderRadius:2, maxBarThickness:Z.bar, ...ex});
+  const mk1 = (id, cfg) => after.push(() => { const el = $('#' + id); if (el) charts[id] = new Chart(el, cfg); });
 
-  // ---- new vs returning
-  const ch = gc === 'week' ? cb.slice(-52) : cb, crows = cb.slice().reverse(), showAllC = S.hcAll === gc, cshow = showAllC ? crows : crows.slice(0, gc === 'week' ? 26 : 24);
-  const prevOf = (arr, i) => arr[i + 1];
-  h += `<h2 class="sec" style="margin-top:26px">New vs returning customers <small>orders per ${gc}${g === 'day' ? ' (no daily view)' : ''}</small></h2>
-    <div class="grid charts3" style="grid-template-columns:2fr 1fr;margin-top:10px">
-      <div class="card chart-card"><div class="legend"><span><i style="background:#b38b33"></i>New customers</span><span><i style="background:#3a80c4"></i>Returning customers</span></div><div class="chart-wrap" style="height:${H(260)}px"><canvas id="hC"></canvas></div></div>
-      <div class="card chart-card"><h3>Growth vs previous ${gc}</h3><div class="sub">new vs returning orders, %</div><div class="legend"><span><i style="background:#b38b33"></i>New</span><span><i style="background:#3a80c4"></i>Returning</span></div><div class="chart-wrap" style="height:${H(226)}px"><canvas id="hG"></canvas></div></div></div>
-    <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${gc[0].toUpperCase() + gc.slice(1)}</th><th>New customers</th><th>Growth</th><th>Returning orders</th><th>Growth</th><th>Returning share</th><th>New-customer revenue</th><th>Returning revenue</th><th>CAC</th></tr></thead><tbody>
-    ${cshow.map((r, i) => { const p = prevOf(crows, i); const sp = gc === 'year' ? spendIn(r.k + '-01-01', r.k + '-12-31') : gc === 'month' ? spendIn(r.k + '-01', r.k + '-31') : spendIn(r.k, addD(r.k, 6));
-      return `<tr><td class="l">${LAB[gc](r.k)}</td><td class="num"><b>${int(r.nc)}</b></td><td class="num">${p ? gr(r.nc, p.nc) : '–'}</td><td class="num"><b>${int(r.o - r.nc)}</b></td><td class="num">${p ? gr(r.o - r.nc, p.o - p.nc) : '–'}</td>
-        <td class="num">${r.o ? pct((r.o - r.nc) / r.o, 0) : '–'}</td><td class="num">${money(r.ncrev)}</td><td class="num">${money(r.rev - r.ncrev)}</td><td class="num">${r.nc && sp ? money(sp / r.nc, 0) : '–'}</td></tr>`; }).join('')}
-    </tbody></table></div>${showAllC ? '' : more('c', crows.length, cshow.length)}`;
+  // ---------- shared pieces
+  const pr = bucket(A, Bd, KEY[g]);
+  const profitChart = (id, rows) => mk1(id, {type:'bar', data:{labels:rows.map(b => SH[g](b.k)), datasets:mk.map(st => bar(st, rows.map(b => b.st[st] ? +b.st[st].pr.toFixed(0) : 0), MKC[st]))},
+    options:{...opt(true, true), plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, titleFont:{size:13, weight:'600'}, filter:c => c.raw !== 0,
+      callbacks:{title:it => `${it[0].label}  ·  Total ${money(it.reduce((x, c) => x + c.raw, 0))}`, label:c => `${c.dataset.label}: ${money(c.raw)}`}}}}});
+  const tot = {pr:sumDays(A, Bd, 2), rev:sumDays(A, Bd, 0), sp:sumDays(A, Bd, 1)}, ctot = CA ? {pr:sumDays(CA, CB, 2), rev:sumDays(CA, CB, 0), sp:sumDays(CA, CB, 1)} : {};
+  const cu = custIn(A, Bd), ccu = CA ? custIn(CA, CB) : null;
 
-  // ---- COGS
-  h += `<h2 class="sec" style="margin-top:26px">COGS <small>cost of goods per ${gc}, Triple Whale orders</small></h2>
-    <div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:10px">
-      <div class="card chart-card"><h3>Revenue vs COGS</h3><div class="sub">${curCode()} per ${gc}</div><div class="legend"><span><i style="background:#c7b48b"></i>Revenue</span><span><i style="background:#cf4640"></i>COGS</span></div><div class="chart-wrap" style="height:${H(250)}px"><canvas id="hK"></canvas></div></div>
-      <div class="card chart-card"><h3>COGS as % of revenue</h3><div class="sub">lower is better</div><div class="chart-wrap" style="height:${H(250)}px"><canvas id="hKp"></canvas></div></div></div>
-    <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${gc[0].toUpperCase() + gc.slice(1)}</th><th>Revenue</th><th>COGS</th><th>COGS %</th><th>Gross profit</th><th>Gross margin</th><th>Orders</th><th>COGS / order</th></tr></thead><tbody>
-    ${cshow.map(r => `<tr><td class="l">${LAB[gc](r.k)}</td><td class="num">${money(r.rev)}</td><td class="num"><b>${money(r.cogs)}</b></td><td class="num">${r.rev ? pct(r.cogs / r.rev, 1) : '–'}</td><td class="num">${money(r.rev - r.cogs)}</td><td class="num">${r.rev ? pct(1 - r.cogs / r.rev, 0) : '–'}</td><td class="num">${int(r.o)}</td><td class="num">${r.o ? money(r.cogs / r.o, 2) : '–'}</td></tr>`).join('')}
-    </tbody></table></div>${showAllC ? '' : more('c', crows.length, cshow.length)}`;
-
-  // ---- LTV cohorts
-  const hm = S.hlm || 'rev', KS = [0, 1, 2, 3, 6, 9, 12, 18, 24];
-  const cms = [...lt.keys()].sort().slice(-24).reverse();
-  const cell = (m, K) => { if (addM(m, K) > thisMonth) return null; const b = coh.get(m) || {}, n = (lt.get(m) || {}).n; if (!n) return null; let s = 0; for (const kk in b) if (+kk <= K) s += b[kk][hm === 'rev' ? 'rev' : 'gp']; return {v:s / n, part:addM(m, K) === thisMonth}; };
-  let vmax = 1; for (const m of cms) for (const K of KS) { const c = cell(m, K); if (c && c.v > vmax) vmax = c.v; }
-  h += `<div class="chart-top" style="margin-top:26px"><h2 class="sec" style="margin:0">LTV cohorts <small>${hm === 'rev' ? 'revenue' : 'gross profit'} per customer, by month of first order, cumulative</small></h2>${tabs('hlm', hm, [['rev','Revenue'],['gp','Gross profit']])}</div>
-    <div class="tbl-wrap" style="margin-top:10px"><table class="cohort"><thead><tr><th class="l">First order</th><th>Customers</th><th>CAC</th>${KS.map(K => `<th>${K === 0 ? 'First month' : 'Month ' + K}</th>`).join('')}<th>LTV / CAC<br><small>month 12, gross profit</small></th><th>Bought again</th></tr></thead><tbody>
-    ${cms.map(m => { const b = lt.get(m), cac = cacOf(m, m); const g12 = (() => { if (addM(m, 12) > thisMonth) return null; const cc = coh.get(m) || {}; let s = 0; for (const kk in cc) if (+kk <= 12) s += cc[kk].gp; return b.n ? s / b.n : null; })();
-      return `<tr><td class="l">${MON(m)} ${m.slice(0, 4)}</td><td class="num">${int(b.n)}</td><td class="num">${cac != null ? money(cac, 0) : '–'}</td>
-        ${KS.map(K => { const c = cell(m, K); return c ? `<td class="num" style="background:rgba(179,139,51,${(0.08 + 0.5 * Math.max(0, c.v) / vmax).toFixed(2)})${c.part ? ';font-style:italic;opacity:.75' : ''}" title="${c.part ? 'month still running' : ''}">${money(c.v, 0)}</td>` : '<td></td>'; }).join('')}
-        <td class="num ${rq(ratio(g12, cac))}">${rx(ratio(g12, cac))}</td><td class="num">${pct(b.n ? b.rep / b.n : null, 1)}</td></tr>`; }).join('')}
-    </tbody></table></div><div class="note">Each cell = total ${hm === 'rev' ? 'order revenue' : 'gross profit (revenue minus COGS)'} from that month's new customers up to that month, divided by the number of new customers. Italic = month still running. CAC = that month's ad spend ÷ that month's new customers.</div>`;
-
-  // ---- email list health (Klaviyo; US/UK/AU/CA accounts)
-  const emk = mk.filter(st => (HL.stores[st].email || []).length);
-  if (emk.length) {
-    const em = new Map();
-    for (const st of emk) for (const r of HL.stores[st].email) { const kk = gc === 'year' ? r.m.slice(0, 4) : r.m; const b = em.get(kk) || {k:kk};
-      for (const f in r) if (f !== 'm') b[f] = (b[f] || 0) + r[f]; em.set(kk, b); }
-    const er = [...em.values()].sort((x, y) => x.k < y.k ? -1 : 1), erv = er.slice().reverse(), eshow = S.heAll ? erv : erv.slice(0, 18), el = er.filter(r => r.k < thisMonth && r.k.length === 7).pop() || er[er.length - 1] || {};
-    const rt = (r, f) => r.recv ? (r[f] || 0) / r.recv : null, net = r => (r.sub || 0) - (r.unsub || 0) - (r.spam_u || 0);
-    const flag = (v, good, bad) => v == null ? '' : v <= good ? 'good' : v >= bad ? 'bad' : '';
-    h += `<h2 class="sec" style="margin-top:26px">Email list health <small>Klaviyo ${emk.join(' · ')}${mk.some(st => !emk.includes(st)) ? ' (DE and NL have no Klaviyo key yet)' : ''}, per ${gc === 'year' ? 'year' : 'month'}</small></h2>
-      <div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:10px">
-      ${kp('Emails sent', int(el.recv), `${el.k ? MONL(el.k) : ''} · to ${int(el.recv_u)} people, ${el.recv_u ? (el.recv / el.recv_u).toFixed(1) : '–'} each`)}
-      ${kp('List growth', (net(el) >= 0 ? '+' : '') + int(net(el)), `${int(el.sub)} new subscribers − ${int(el.unsub)} unsubscribes − ${int(el.spam_u)} spam`, net(el) >= 0 ? 'good' : 'bad')}
-      ${kp('Spam complaint rate', pct(rt(el, 'spam'), 3), 'keep under 0.1% · Google/Yahoo block at 0.3%', flag(rt(el, 'spam'), 0.001, 0.003))}
-      ${kp('Unsubscribe rate', pct(rt(el, 'unsub'), 2), 'per email sent · healthy under 0.3%', flag(rt(el, 'unsub'), 0.003, 0.005))}
-      ${kp('Bounce rate', pct(rt(el, 'bounce'), 2), 'keep under 1%, 2% is a warning', flag(rt(el, 'bounce'), 0.01, 0.02))}
-      ${kp('Click rate', pct(el.recv ? el.click_u / el.recv_u : null, 1), `unique clickers ÷ people reached · open rate ${pct(el.recv_u ? el.open_u / el.recv_u : null, 0)} (inflated by Apple Mail)`)}
-      </div>
-      <div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:12px">
-        <div class="card chart-card"><h3>Emails sent vs people reached</h3><div class="legend"><span><i style="background:#c7b48b"></i>Emails sent</span><span><i style="background:#3a80c4"></i>People reached</span></div><div class="chart-wrap" style="height:${H(240)}px"><canvas id="hE1"></canvas></div></div>
-        <div class="card chart-card"><h3>New subscribers vs people leaving</h3><div class="legend"><span><i style="background:#4fa37a"></i>New subscribers</span><span><i style="background:#cf4640"></i>Unsubscribes + spam</span></div><div class="chart-wrap" style="height:${H(240)}px"><canvas id="hE2"></canvas></div></div>
-        <div class="card chart-card"><h3>Spam complaint rate</h3><div class="sub">dashed line = 0.1% guideline</div><div class="chart-wrap" style="height:${H(220)}px"><canvas id="hE3"></canvas></div></div>
-        <div class="card chart-card"><h3>Unsubscribe and bounce rate</h3><div class="legend"><span><i style="background:#e08a3c"></i>Unsubscribe</span><span><i style="background:#8f74d6"></i>Bounce</span></div><div class="chart-wrap" style="height:${H(220)}px"><canvas id="hE4"></canvas></div></div>
-      </div>
-      <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${gc === 'year' ? 'Year' : 'Month'}</th><th>Emails sent</th><th>People reached</th><th>Per person</th><th>New subscribers</th><th>Unsubscribes</th><th>Spam complaints</th><th>Net growth</th><th>Spam rate</th><th>Unsub rate</th><th>Bounce rate</th><th>Open rate</th><th>Click rate</th></tr></thead><tbody>
-      ${eshow.map(r => `<tr><td class="l">${r.k.length === 7 ? MONL(r.k) : r.k}${r.k === thisMonth ? ' <span class="muted">(running)</span>' : ''}</td><td class="num">${int(r.recv)}</td><td class="num">${int(r.recv_u)}</td><td class="num">${r.recv_u ? (r.recv / r.recv_u).toFixed(1) : '–'}</td>
-        <td class="num">${int(r.sub)}</td><td class="num">${int(r.unsub)}</td><td class="num">${int(r.spam)}</td><td class="num ${net(r) >= 0 ? 'good' : 'bad'}"><b>${net(r) >= 0 ? '+' : ''}${int(net(r))}</b></td>
-        <td class="num ${flag(rt(r, 'spam'), 0.001, 0.003)}">${pct(rt(r, 'spam'), 3)}</td><td class="num ${flag(rt(r, 'unsub'), 0.003, 0.005)}">${pct(rt(r, 'unsub'), 2)}</td><td class="num ${flag(rt(r, 'bounce'), 0.01, 0.02)}">${pct(rt(r, 'bounce'), 2)}</td>
-        <td class="num">${pct(r.recv_u ? r.open_u / r.recv_u : null, 0)}</td><td class="num">${pct(r.recv_u ? r.click_u / r.recv_u : null, 1)}</td></tr>`).join('')}
-      </tbody></table></div>${S.heAll || erv.length <= 18 ? '' : `<button class="btn ghost sm" data-more="e" style="margin-top:10px">Show all ${erv.length} rows</button>`}
-      <div class="note">Rates are per email sent. Net growth = new email subscribers − unsubscribes − people who marked spam (they are suppressed). Open rate counts Apple Mail privacy opens, so click rate is the reliable engagement number. Benchmarks: Google/Yahoo sender rules (spam under 0.1%, never 0.3%), Klaviyo's ecommerce averages (unsubscribe ~0.1 to 0.3%, bounce under 1%).</div>`;
-    afterRender.push(() => {
-      const lab = er.map(r => r.k.length === 7 ? MON(r.k) + ' ' + r.k.slice(2, 4) : r.k);
-      const base = {responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
-        scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:10, font:{size:10}}}, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}}}}};
-      const pctY = {...base, plugins:{...base.plugins, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw}%`}}}, scales:{...base.scales, y:{...base.scales.y, ticks:{...base.scales.y.ticks, callback:v => v + '%'}}}};
-      const line = (label, data, col, extra = {}) => ({label, data, borderColor:col, backgroundColor:col, borderWidth:2, pointRadius:1.5, tension:.25, ...extra});
-      charts.hE1 = new Chart($('#hE1'), {type:'line', data:{labels:lab, datasets:[line('Emails sent', er.map(r => r.recv), '#c7b48b'), line('People reached', er.map(r => r.recv_u), '#3a80c4')]}, options:base});
-      charts.hE2 = new Chart($('#hE2'), {type:'bar', data:{labels:lab, datasets:[{label:'New subscribers', data:er.map(r => r.sub || 0), backgroundColor:'#4fa37a', borderRadius:2, maxBarThickness:Z.bar},
-        {label:'Unsubscribes + spam', data:er.map(r => (r.unsub || 0) + (r.spam_u || 0)), backgroundColor:'#cf4640', borderRadius:2, maxBarThickness:Z.bar}]}, options:base});
-      charts.hE3 = new Chart($('#hE3'), {type:'line', data:{labels:lab, datasets:[line('Spam rate', er.map(r => r.recv ? +(r.spam / r.recv * 100).toFixed(4) : null), '#cf4640'),
-        line('Guideline 0.1%', er.map(() => 0.1), '#8a8a94', {borderDash:[4, 4], borderWidth:1.5, pointRadius:0})]}, options:pctY});
-      charts.hE4 = new Chart($('#hE4'), {type:'line', data:{labels:lab, datasets:[line('Unsubscribe', er.map(r => r.recv ? +(r.unsub / r.recv * 100).toFixed(3) : null), '#e08a3c'),
-        line('Bounce', er.map(r => r.recv ? +(r.bounce / r.recv * 100).toFixed(3) : null), '#8f74d6')]}, options:pctY});
-    });
+  if (tab === 'overview') {
+    const life = sumDays('0000', today, 2), L365 = ltvWin(365, addM(thisMonth, -24), addM(thisMonth, -13)), C365 = cacIn(addM(thisMonth, -24) + '-01', mEnd(addM(thisMonth, -13)));
+    const lmU = ue(addM(thisMonth, -1)) || {}, tp = HL.trust || [];
+    let jn = 0, jw = 0; for (const st of mk) { const j = HL.stores[st].judgeme || {}; if (j.reviews) { jn += j.reviews; jw += j.reviews * j.rating; } }
+    const em = new Map(); for (const st of mk) for (const r of HL.stores[st].email || []) { if (!mIn(r.m, A, Bd)) continue; const b = em.get('x') || {}; for (const f in r) if (f !== 'm') b[f] = (b[f] || 0) + r[f]; em.set('x', b); }
+    const e = em.get('x') || {};
+    h += `<h2 class="sec" style="margin-top:18px">In these dates</h2>` + grid(
+      kp('Net profit', money(tot.pr), vs(tot.pr, ctot.pr), tot.pr >= 0 ? 'good' : 'bad') +
+      kp('Revenue', money(tot.rev), vs(tot.rev, ctot.rev)) +
+      kp('Ad spend', money(tot.sp), vs(tot.sp, ctot.sp, true)) +
+      kp('Net margin', pct(tot.rev ? tot.pr / tot.rev : null, 1), CA && ctot.rev ? `${pct(ctot.pr / ctot.rev, 1)} before` : '') +
+      kp('MER', pct(tot.rev ? tot.sp / tot.rev : null, 1), 'ad spend ÷ revenue, lower is better') +
+      kp('New customers', int(cu.nc), vs(cu.nc, ccu && ccu.nc)) +
+      kp('Returning orders', int(cu.o - cu.nc), vs(cu.o - cu.nc, ccu && ccu.o - ccu.nc)) +
+      kp('CAC', cu.nc ? money(tot.sp / cu.nc, 0) : '–', vs(cu.nc ? tot.sp / cu.nc : null, ccu && ccu.nc ? ctot.sp / ccu.nc : null, true)) +
+      kp('aMER', tot.sp ? x2(cu.ncrev / tot.sp) : '–', 'new-customer revenue ÷ ad spend') +
+      kp('Gross margin', pct(cu.rev ? 1 - cu.cogs / cu.rev : null, 0), `COGS ${pct(cu.rev ? cu.cogs / cu.rev : null, 1)} of revenue`));
+    h += `<h2 class="sec" style="margin-top:22px">All time</h2>` + grid(
+      kp('Profit since day one', money(life), `since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}`, life >= 0 ? 'good' : 'bad') +
+      kp('LTV after 365 days', L365.r != null ? money(L365.r, 0) : '–', `gross profit ${L365.g != null ? money(L365.g, 0) : '–'}`) +
+      kp('LTV / CAC (365 days)', L365.g && C365 ? x2(L365.g / C365) : '–', 'gross-profit LTV ÷ CAC, customers acquired 13 to 24 months ago') +
+      kp('First-order contribution', lmU.fc != null ? money(lmU.fc, 0) : '–', `per new customer, ${MONL(addM(thisMonth, -1))}`, lmU.fc >= 0 ? 'good' : 'bad') +
+      tp.map(t => kp('Trustpilot ' + (t.domain.endsWith('.co.uk') ? '.co.uk' : '.com'), `${t.score != null ? t.score.toFixed(1) : '–'}<small style="font-size:14px;color:var(--muted)"> / 5</small>`, `${int(t.n)} reviews`, t.score >= 4 ? 'good' : 'bad')).join('') +
+      kp('Judge.me', jn ? (jw / jn).toFixed(2) + '<small style="font-size:14px;color:var(--muted)"> / 5</small>' : '–', `${int(jn)} product reviews`, 'good') +
+      kp('Email list growth', e.recv != null ? ((e.sub - e.unsub - e.spam_u) >= 0 ? '+' : '') + int(e.sub - e.unsub - e.spam_u) : '–', 'new subscribers − unsubscribes − spam, these dates') +
+      kp('Customer service', HL.support ? '' : '–', HL.support ? '' : 'Gorgias not connected yet'));
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hoP', 'Profit', `per ${g}`, mk.length > 1 ? lg(mk.map(st => [st, MKC[st]])) : '', 260)}
+      ${card('hoC', 'New vs returning customers', `orders per ${gc}`, lg([['New', '#b38b33'], ['Returning', '#3a80c4']]), 260)}</div>`;
+    profitChart('hoP', pr);
+    const cr = (gc === 'week' ? CW : cust(gc)).filter(r => gc === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : gc === 'week' ? r.k >= monday(A) && r.k <= Bd : mIn(r.k, A, Bd));
+    mk1('hoC', {type:'bar', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[bar('New', cr.map(r => r.nc), '#b38b33'), bar('Returning', cr.map(r => r.o - r.nc), '#3a80c4')]}, options:opt(false, false)});
   }
 
-  // ---- customer support (Gorgias)
-  const sup = HL.support || null;
-  h += `<h2 class="sec" style="margin-top:26px">Customer support <small>Gorgias</small></h2>`;
-  if (!sup) h += `<div class="card" style="padding:16px"><b>Not connected yet.</b> <span class="muted">Needs a Gorgias REST API key. Once it is in, this shows tickets per month and growth, tickets per 100 orders, first response time, resolution time, tickets that waited over 24 hours, one-touch resolution, CSAT, and the top contact reasons (where is my order, returns, damaged item...).</span></div>`;
-  // ---- Trustpilot detail
-  if (tp.length) h += `<h2 class="sec" style="margin-top:26px">Trustpilot</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">${tp.map(t => `<div class="card" style="padding:16px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline"><b>${esc(t.domain)}</b><span class="num" style="font-size:22px">${t.score != null ? t.score.toFixed(1) : '–'}</span></div><div class="muted" style="font-size:12px;margin-bottom:10px">${int(t.n)} reviews</div>
-      ${(t.dist || []).map((n, i) => ({n, s:i + 1})).reverse().map(x => `<div class="rs-p" style="grid-template-columns:52px 1fr 60px"><span>${x.s} star</span><div class="bar"><i style="width:${t.n ? (x.n / t.n * 100).toFixed(1) : 0}%;background:${x.s >= 4 ? '#4fa37a' : x.s === 3 ? '#8a8a94' : '#cf4640'}"></i></div><b>${int(x.n)}</b></div>`).join('')}</div>`).join('')}</div>`;
+  if (tab === 'profit') {
+    const rows = pr.slice().reverse(), all = S.hpAll === g + A + Bd, show = all ? rows : rows.slice(0, g === 'day' ? 62 : 36);
+    const fixed = Object.keys(corrDays).filter(d => inR(d, A, Bd)).length;
+    h += `<div class="chart-top" style="margin-top:18px"><h2 class="sec" style="margin:0">Profit per ${g} <small>${mk.length > 1 ? 'each market + total' : S.market}</small></h2>
+      <div style="display:flex;gap:8px;align-items:center"><span class="muted" style="font-size:11px">US order-edit days</span>${tabs('hcor', corrOn ? 'fixed' : 'raw', [['fixed','Corrected'],['raw','Triple Whale raw']])}</div></div>`;
+    h += grid(kp('Total profit', money(tot.pr), vs(tot.pr, ctot.pr), tot.pr >= 0 ? 'good' : 'bad') + kp('Average per day', money(tot.pr / Math.max(1, Math.min(span, nDays(A < first ? first : A, Bd)))), '') +
+      kp('Best ' + g, pr.length ? money(Math.max(...pr.map(b => b.pr))) : '–', pr.length ? LAB[g](pr.reduce((x, y) => y.pr > x.pr ? y : x).k) : '') +
+      kp('Worst ' + g, pr.length ? money(Math.min(...pr.map(b => b.pr))) : '–', pr.length ? LAB[g](pr.reduce((x, y) => y.pr < x.pr ? y : x).k) : '', 'bad') +
+      kp('Profitable ' + g + 's', pr.length ? `${pr.filter(b => b.pr > 0).length} / ${pr.length}` : '–', '') + kp('Net margin', pct(tot.rev ? tot.pr / tot.rev : null, 1), `on ${money(tot.rev)} revenue`), 170);
+    h += `<div class="card chart-card" style="margin-top:12px">${mk.length > 1 ? `<div class="legend">${lg(mk.map(st => [st, MKC[st]]))}</div>` : ''}<div class="chart-wrap" style="height:${H(320)}px"><canvas id="hpP"></canvas></div></div>`;
+    profitChart('hpP', pr);
+    const cum = []; let run = 0; for (const b of pr) { run += b.pr; cum.push(+run.toFixed(0)); }
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:12px">${card('hpCum', 'Cumulative profit', 'running total over these dates', '', 220)}${card('hpM', 'Net margin', `profit ÷ revenue per ${g}`, '', 220)}</div>`;
+    mk1('hpCum', {type:'line', data:{labels:pr.map(b => SH[g](b.k)), datasets:[line('Cumulative profit', cum, '#4fa37a', {fill:true, backgroundColor:'rgba(79,163,122,.12)'})]}, options:opt(false, true)});
+    mk1('hpM', {type:'line', data:{labels:pr.map(b => SH[g](b.k)), datasets:[line('Net margin', pr.map(b => b.rev ? +(b.pr / b.rev * 100).toFixed(1) : null), '#c7b48b')]}, options:pctOpt()});
+    h += tblWrap(`<table class="hdaily"><thead><tr><th class="l">${g === 'day' ? 'Date' : g[0].toUpperCase() + g.slice(1)}</th>${mk.map(st => `<th>${FLAGS[st]} ${st}</th>`).join('')}<th>${mk.length > 1 ? 'Total' : 'Profit'}</th></tr></thead><tbody>
+      <tr class="tot"><td class="l"><b>Total</b></td>${mk.map(st => { const v = pr.reduce((x, b) => x + (b.st[st] ? b.st[st].pr : 0), 0); return `<td class="num ${v < 0 ? 'bad' : ''}"><b>${money(v)}</b></td>`; }).join('')}<td class="num ${tot.pr < 0 ? 'bad' : 'good'}"><b>${money(tot.pr)}</b></td></tr>
+      ${show.map(b => `<tr><td class="l">${LAB[g](b.k)}${b.fix ? ` <span class="pill gold" title="contains a corrected US order-edit day">${corrOn ? 'corrected' : 'raw, wrong'}</span>` : ''}</td>${mk.map(st => `<td class="num ${b.st[st] && b.st[st].pr < 0 ? 'bad' : ''}">${b.st[st] ? money(b.st[st].pr) : '<span class="muted">–</span>'}</td>`).join('')}<td class="num ${b.pr < 0 ? 'bad' : 'good'}"><b>${money(b.pr)}</b></td></tr>`).join('')}
+      </tbody></table>`) + (all ? '' : more('p', rows.length, show.length));
+    const cd = Object.entries(corrDays).filter(([d]) => inR(d, A, Bd) || pre === 'all').sort();
+    if (cd.length || mk.includes('US')) h += `<h2 class="sec" style="margin-top:24px">US order-edit corrections <small>the Feather / Tiger / BJORN / ODIN SKU switches</small></h2>
+      <div class="note" style="margin-bottom:8px">Removing a line in a Shopify order edit books a refund that moved $0, and Triple Whale counts it as real; the replacement line is counted as a new sale on the original order date. It happened on 19 Aug, 20 Aug and 24 Sep 2026 (found in Triple Whale's refunds table). You offset 19 Aug and 24 Sep by hand in Triple Whale; 20 Aug never was. "Corrected" takes the fake refunds off the edit days, takes the duplicate sales off the order dates (their cost added back) and removes your two manual offsets so nothing counts twice. Net effect on US profit: <b>${money(Object.values(corrDays).flat().reduce((x, c) => x + c.profit, 0))}</b>.</div>` +
+      tblWrap(`<table><thead><tr><th class="l">Date</th><th>Triple Whale profit</th><th>Correction</th><th>Corrected profit</th><th class="l">Why</th></tr></thead><tbody>${cd.map(([d, cs]) => cs.map(c => { const raw = (HL.stores[c.st].tw[d] || [0, 0, 0])[2] * k(c.st);
+        return `<tr><td class="l">${LAB.day(d)} ${FLAGS[c.st]}</td><td class="num ${raw < 0 ? 'bad' : ''}">${money(raw)}</td><td class="num ${c.profit < 0 ? 'bad' : 'good'}">${c.profit >= 0 ? '+' : ''}${money(c.profit)}</td><td class="num ${raw + c.profit < 0 ? 'bad' : ''}"><b>${money(raw + c.profit)}</b></td><td class="l" style="font-size:12px;white-space:normal">${c.notes.map(esc).join('<br>')}</td></tr>`; }).join('')).join('')}</tbody></table>`);
+  }
+
+  if (tab === 'customers') {
+    const L365 = ltvWin(365, addM(thisMonth, -24), addM(thisMonth, -13)), L90 = ltvWin(90, addM(thisMonth, -15), addM(thisMonth, -4)), C365 = cacIn(addM(thisMonth, -24) + '-01', mEnd(addM(thisMonth, -13))), C90 = cacIn(addM(thisMonth, -15) + '-01', mEnd(addM(thisMonth, -4)));
+    let allN = 0, allRep = 0; for (const b of lt.values()) { allN += b.n; allRep += b.rep; }
+    const ums = months(A, Bd).map(ue).filter(Boolean), full = ums.filter(u => !u.live), wsum = (f, w) => { let a = 0, n = 0; for (const u of full) if (u[f] != null) { a += u[f] * u[w]; n += u[w]; } return n ? a / n : null; };
+    h += grid(kp('New customers', int(cu.nc), vs(cu.nc, ccu && ccu.nc)) + kp('Returning orders', int(cu.o - cu.nc), vs(cu.o - cu.nc, ccu && ccu.o - ccu.nc)) + kp('Returning share', pct(cu.o ? (cu.o - cu.nc) / cu.o : null, 1), 'of all orders') +
+      kp('CAC', cu.nc ? money(tot.sp / cu.nc, 0) : '–', vs(cu.nc ? tot.sp / cu.nc : null, ccu && ccu.nc ? ctot.sp / ccu.nc : null, true)) + kp('aMER', tot.sp ? x2(cu.ncrev / tot.sp) : '–', 'new-customer revenue ÷ ad spend · Ridge') +
+      kp('First-order AOV : CAC', x2(wsum('aov', 'n') && wsum('cac', 'n') ? wsum('aov', 'n') / wsum('cac', 'n') : null), 'HexClad: real margin on order one') + kp('First-order contribution', wsum('fc', 'n') != null ? money(wsum('fc', 'n'), 0) : '–', 'per new customer, complete months in these dates', wsum('fc', 'n') >= 0 ? 'good' : 'bad') +
+      kp('LTV after 90 / 365 days', `${L90.r != null ? money(L90.r, 0) : '–'} / ${L365.r != null ? money(L365.r, 0) : '–'}`, 'revenue per new customer') + kp('LTV / CAC (365 days)', L365.g && C365 ? x2(L365.g / C365) : '–', `gross profit · 90 days: ${L90.g && C90 ? x2(L90.g / C90) : '–'}`) +
+      kp('60-day reorder rate', pct(wsum('r60', 'n'), 1), 'customers who ordered again within 60 days') + kp('Repeat customers', pct(allN ? allRep / allN : null, 1), 'bought 2+ times, all time'), 175);
+    // charts
+    const cr = (gc === 'week' ? CW : cust(gc)).filter(r => gc === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : gc === 'week' ? r.k >= monday(A) && r.k <= Bd : mIn(r.k, A, Bd));
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hcC', 'New vs returning customers', `orders per ${gc}`, lg([['New', '#b38b33'], ['Returning', '#3a80c4']]))}
+      ${card('hcG', 'Growth vs previous ' + gc, 'new vs returning orders', lg([['New', '#b38b33'], ['Returning', '#3a80c4']]))}
+      ${card('hcA', 'CAC and first-order AOV', 'per month', lg([['First-order AOV', '#c7b48b'], ['CAC', '#cf4640'], ['First-order contribution', '#4fa37a']]))}
+      ${card('hcM', 'aMER', 'new-customer revenue ÷ ad spend per month', '')}
+      ${card('hcL', 'LTV curves', 'cumulative revenue per customer by months since first order, last 8 cohorts', '', 280)}
+      ${card('hcR', 'Retention curve', '% of each cohort ordering in month N (month 1 onwards)', '', 280)}</div>`;
+    mk1('hcC', {type:'bar', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[bar('New', cr.map(r => r.nc), '#b38b33'), bar('Returning', cr.map(r => r.o - r.nc), '#3a80c4')]}, options:opt(false, false)});
+    const allc = gc === 'week' ? CW : cust(gc), grw = (r, f) => { const i = allc.findIndex(x => x.k === r.k), p = allc[i - 1]; return p && f(p) ? +((f(r) / f(p) - 1) * 100).toFixed(0) : null; };
+    mk1('hcG', {type:'line', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[line('New', cr.map(r => grw(r, x => x.nc)), '#b38b33'), line('Returning', cr.map(r => grw(r, x => x.o - x.nc)), '#3a80c4')]}, options:pctOpt()});
+    mk1('hcA', {type:'line', data:{labels:ums.map(u => SH.month(u.m)), datasets:[line('First-order AOV', ums.map(u => u.aov && +u.aov.toFixed(0)), '#c7b48b'), line('CAC', ums.map(u => u.cac && +u.cac.toFixed(0)), '#cf4640'), line('First-order contribution', ums.map(u => u.fc != null ? +u.fc.toFixed(0) : null), '#4fa37a')]}, options:opt(false, true)});
+    mk1('hcM', {type:'bar', data:{labels:ums.map(u => SH.month(u.m)), datasets:[bar('aMER', ums.map(u => u.amer != null ? +u.amer.toFixed(2) : null), '#b38b33')]}, options:opt(false, false)});
+    const lastC = [...lt.keys()].sort().filter(m => m <= addM(thisMonth, -1)).slice(-8), pal = ['#3a80c4', '#cf4640', '#b38b33', '#8f74d6', '#4fa37a', '#e08a3c', '#c7b48b', '#8a8a94'], KMAX = 12;
+    mk1('hcL', {type:'line', data:{labels:Array.from({length:KMAX + 1}, (_, i) => 'M' + i), datasets:lastC.map((m, i) => { const b = coh.get(m) || {}, n = (lt.get(m) || {}).n || 1; let s = 0;
+      return line(MON(m) + ' ' + m.slice(2, 4), Array.from({length:KMAX + 1}, (_, K) => { if (addM(m, K) > thisMonth) return null; s += b[K] ? b[K].rev : 0; return +(s / n).toFixed(0); }), pal[i]); })},
+      options:{...opt(false, true), plugins:{legend:{display:true, labels:{color:'#8a8a94', boxWidth:10, font:{size:10}}}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}}}}});
+    mk1('hcR', {type:'line', data:{labels:Array.from({length:KMAX}, (_, i) => 'M' + (i + 1)), datasets:lastC.map((m, i) => { const b = coh.get(m) || {}, n = (lt.get(m) || {}).n || 1;
+      return line(MON(m) + ' ' + m.slice(2, 4), Array.from({length:KMAX}, (_, K) => addM(m, K + 1) > thisMonth ? null : +((b[K + 1] ? b[K + 1].act : 0) / n * 100).toFixed(2)), pal[i]); })},
+      options:{...pctOpt(), plugins:{legend:{display:true, labels:{color:'#8a8a94', boxWidth:10, font:{size:10}}}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw}%`}}}}});
+    // unit economics table
+    h += `<h2 class="sec" style="margin-top:24px">Unit economics per month <small>HexClad: margin on order one · Ridge: aMER · payback in 3 to 6 months</small></h2>` + tblWrap(`<table><thead><tr><th class="l">Month</th><th>New customers</th><th>Ad spend</th><th>CAC</th><th>First-order AOV</th><th>AOV : CAC</th><th>First-order gross profit</th><th>Fulfilment & fees</th><th>First-order contribution</th><th>aMER</th><th>60-day reorder</th><th>Payback</th></tr></thead><tbody>
+      ${ums.slice().reverse().map(u => `<tr${u.live ? ' style="opacity:.75"' : ''}><td class="l">${MONL(u.m)}${u.live ? ' <span class="muted">(running)</span>' : ''}</td><td class="num">${int(u.n)}</td><td class="num">${money(u.sp)}</td><td class="num">${u.cac != null ? money(u.cac, 0) : '–'}</td>
+        <td class="num">${u.aov != null ? money(u.aov, 0) : '–'}</td><td class="num ${u.aov && u.cac ? (u.aov / u.cac >= 2 ? 'good' : u.aov / u.cac < 1.3 ? 'bad' : '') : ''}">${u.aov && u.cac ? x2(u.aov / u.cac) : '–'}</td><td class="num">${u.gp0 != null ? money(u.gp0, 0) : '–'}</td><td class="num">${money(u.ful, 0)}</td>
+        <td class="num ${u.fc == null ? '' : u.fc >= 0 ? 'good' : 'bad'}"><b>${u.fc != null ? money(u.fc, 0) : '–'}</b></td><td class="num">${u.amer != null ? x2(u.amer) : '–'}</td><td class="num">${u.r60 != null && !u.live ? pct(u.r60, 1) : '–'}</td>
+        <td class="num ${u.pay == null ? '' : u.pay <= 3 ? 'good' : u.pay <= 6 ? '' : 'bad'}">${u.pay === 0 ? 'first order' : u.pay != null ? u.pay + ' mo' : u.rec != null ? '<span class="muted">' + pct(Math.max(0, u.rec), 0) + ' back</span>' : '–'}</td></tr>`).join('')}</tbody></table>`);
+    // cohort table
+    const hm = S.hlm || 'rev', KS = [0, 1, 2, 3, 6, 9, 12, 18, 24], cms = [...lt.keys()].sort().filter(m => mIn(m, A, Bd) || pre === 'all').reverse().slice(0, S.hcoAll ? 999 : 24);
+    const cell = (m, K) => { if (addM(m, K) > thisMonth) return null; const b = coh.get(m) || {}, n = (lt.get(m) || {}).n; if (!n) return null; let s = 0; for (const kk in b) if (+kk <= K) s += b[kk][hm === 'rev' ? 'rev' : 'gp']; return {v:s / n, part:addM(m, K) === thisMonth}; };
+    let vmax = 1; for (const m of cms) for (const K of KS) { const c = cell(m, K); if (c && c.v > vmax) vmax = c.v; }
+    h += `<div class="chart-top" style="margin-top:24px"><h2 class="sec" style="margin:0">LTV cohorts <small>${hm === 'rev' ? 'revenue' : 'gross profit'} per customer by month of first order, cumulative</small></h2>${tabs('hlm', hm, [['rev','Revenue'],['gp','Gross profit']])}</div>` +
+      tblWrap(`<table class="cohort"><thead><tr><th class="l">First order</th><th>Customers</th><th>CAC</th>${KS.map(K => `<th>${K === 0 ? 'Month 0' : 'Month ' + K}</th>`).join('')}<th>LTV / CAC<br><small>month 12, GP</small></th><th>Bought again</th></tr></thead><tbody>
+      ${cms.map(m => { const b = lt.get(m), u = ue(m) || {}; let g12 = null; if (addM(m, 12) <= thisMonth) { const cc = coh.get(m) || {}; let s = 0; for (const kk in cc) if (+kk <= 12) s += cc[kk].gp; g12 = b.n ? s / b.n : null; }
+        return `<tr><td class="l">${MON(m)} ${m.slice(0, 4)}</td><td class="num">${int(b.n)}</td><td class="num">${u.cac != null ? money(u.cac, 0) : '–'}</td>${KS.map(K => { const c = cell(m, K); return c ? `<td class="num" style="background:rgba(179,139,51,${(0.08 + 0.5 * Math.max(0, c.v) / vmax).toFixed(2)})${c.part ? ';font-style:italic;opacity:.75' : ''}">${money(c.v, 0)}</td>` : '<td></td>'; }).join('')}
+          <td class="num ${g12 && u.cac ? (g12 / u.cac >= 3 ? 'good' : g12 / u.cac < 1 ? 'bad' : '') : ''}">${g12 && u.cac ? x2(g12 / u.cac) : '–'}</td><td class="num">${pct(b.n ? b.rep / b.n : null, 1)}</td></tr>`; }).join('')}</tbody></table>`) +
+      (S.hcoAll ? '' : `<button class="btn ghost sm" data-more="co" style="margin-top:10px">Show every cohort since 2022</button>`) +
+      `<div class="note">Cohorts follow the date bar (first-order month inside the dates). Italic = month still running. Fulfilment & fees = Triple Whale handling + payment fees per order over the last 12 months. Benchmarks: durables make money on order one (HexClad), payback 3 to 6 months, LTV:CAC 3x over 3 years.</div>`;
+  }
+
+  if (tab === 'margins') {
+    const cr = (gc === 'week' ? CW : cust(gc)).filter(r => gc === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : gc === 'week' ? r.k >= monday(A) && r.k <= Bd : mIn(r.k, A, Bd));
+    const ful = mk.reduce((x, st) => x + ((HL.stores[st].ful || {}).perOrder || 0) * k(st) * (cu.o / mk.length), 0);
+    h += grid(kp('Revenue', money(cu.rev), vs(cu.rev, ccu && ccu.rev)) + kp('COGS', money(cu.cogs), vs(cu.cogs, ccu && ccu.cogs, true)) + kp('COGS % of revenue', pct(cu.rev ? cu.cogs / cu.rev : null, 1), ccu && ccu.rev ? `${pct(ccu.cogs / ccu.rev, 1)} before` : '') +
+      kp('Gross margin', pct(cu.rev ? 1 - cu.cogs / cu.rev : null, 0), 'after COGS') + kp('COGS per order', cu.o ? money(cu.cogs / cu.o, 2) : '–', `${int(cu.o)} orders`) + kp('MER', pct(tot.rev ? tot.sp / tot.rev : null, 1), 'ad spend ÷ revenue') + kp('Net margin', pct(tot.rev ? tot.pr / tot.rev : null, 1), 'after every cost Triple Whale knows'), 170);
+    h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hmK', 'Revenue vs COGS', `${curCode()} per ${gc}`, lg([['Revenue', '#c7b48b'], ['COGS', '#cf4640']]))}${card('hmKp', 'COGS as % of revenue', 'lower is better', '')}
+      ${card('hmW', 'Where each dollar of revenue goes', `per ${g}, from the daily profit data`, lg([['Ad spend', '#3a80c4'], ['Profit', '#4fa37a'], ['Other costs (COGS, fees, shipping...)', '#8a8a94']]))}${card('hmN', 'Net margin and MER', `per ${g}`, lg([['Net margin', '#4fa37a'], ['MER (ad spend ÷ revenue)', '#3a80c4']]))}</div>`;
+    mk1('hmK', {type:'line', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[line('Revenue', cr.map(r => +r.rev.toFixed(0)), '#c7b48b', {fill:true, backgroundColor:'rgba(199,180,139,.12)'}), line('COGS', cr.map(r => +r.cogs.toFixed(0)), '#cf4640', {fill:true, backgroundColor:'rgba(207,70,64,.15)'})]},
+      options:{...opt(false, true), plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`, footer:it => it.length > 1 && it[0].raw ? 'COGS = ' + (it[1].raw / it[0].raw * 100).toFixed(1) + '% of revenue' : ''}}}}});
+    mk1('hmKp', {type:'line', data:{labels:cr.map(r => SH[gc](r.k)), datasets:[line('COGS %', cr.map(r => r.rev ? +(r.cogs / r.rev * 100).toFixed(1) : null), '#cf4640')]}, options:pctOpt()});
+    mk1('hmW', {type:'bar', data:{labels:pr.map(b => SH[g](b.k)), datasets:[bar('Ad spend', pr.map(b => b.rev ? +(b.sp / b.rev * 100).toFixed(1) : null), '#3a80c4'), bar('Profit', pr.map(b => b.rev ? +(b.pr / b.rev * 100).toFixed(1) : null), '#4fa37a'),
+      bar('Other costs (COGS, fees, shipping...)', pr.map(b => b.rev ? +((b.rev - b.sp - b.pr) / b.rev * 100).toFixed(1) : null), '#8a8a94')]}, options:{...pctOpt(), scales:{x:{...ax(true).x}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', callback:v => v + '%'}}}}});
+    mk1('hmN', {type:'line', data:{labels:pr.map(b => SH[g](b.k)), datasets:[line('Net margin', pr.map(b => b.rev ? +(b.pr / b.rev * 100).toFixed(1) : null), '#4fa37a'), line('MER', pr.map(b => b.rev ? +(b.sp / b.rev * 100).toFixed(1) : null), '#3a80c4')]}, options:pctOpt()});
+    const rows = cr.slice().reverse();
+    h += tblWrap(`<table><thead><tr><th class="l">${gc[0].toUpperCase() + gc.slice(1)}</th><th>Revenue</th><th>COGS</th><th>COGS %</th><th>Gross profit</th><th>Gross margin</th><th>Orders</th><th>COGS / order</th></tr></thead><tbody>${rows.map(r => `<tr><td class="l">${LAB[gc](r.k)}</td><td class="num">${money(r.rev)}</td><td class="num"><b>${money(r.cogs)}</b></td><td class="num">${r.rev ? pct(r.cogs / r.rev, 1) : '–'}</td><td class="num">${money(r.rev - r.cogs)}</td><td class="num">${r.rev ? pct(1 - r.cogs / r.rev, 0) : '–'}</td><td class="num">${int(r.o)}</td><td class="num">${r.o ? money(r.cogs / r.o, 2) : '–'}</td></tr>`).join('')}</tbody></table>`) +
+      `<div class="note">"Other costs" = revenue − ad spend − net profit: COGS, handling, payment fees, shipping, refunds and custom expenses. COGS falls from about 30% to 15% of revenue in March 2025 in Triple Whale's order data, most likely a change in the product costs set in Triple Whale.</div>`;
+  }
+
+  if (tab === 'email') {
+    const emk = mk.filter(st => (HL.stores[st].email || []).length);
+    if (!emk.length) h += '<div class="empty">No Klaviyo data for this market (DE and NL have no Klaviyo key).</div>';
+    else {
+      const em = new Map(), eg = gc === 'year' ? 'year' : 'month';
+      for (const st of emk) for (const r of HL.stores[st].email) { const kk = eg === 'year' ? r.m.slice(0, 4) : r.m; const b = em.get(kk) || {k:kk}; for (const f in r) if (f !== 'm') b[f] = (b[f] || 0) + r[f]; em.set(kk, b); }
+      const er = [...em.values()].sort((x, y) => x.k < y.k ? -1 : 1).filter(r => eg === 'year' ? r.k >= A.slice(0, 4) && r.k <= Bd.slice(0, 4) : mIn(r.k, A, Bd));
+      const sumE = (a, b) => { const o = {}; if (!a) return null; for (const st of emk) for (const r of HL.stores[st].email) if (mIn(r.m, a, b)) for (const f in r) if (f !== 'm') o[f] = (o[f] || 0) + r[f]; return o; };
+      const e = sumE(A, Bd) || {}, pe = CA ? sumE(CA, CB) : null, rt = (r, f) => r && r.recv ? (r[f] || 0) / r.recv : null, net = r => r ? (r.sub || 0) - (r.unsub || 0) - (r.spam_u || 0) : null;
+      const flag = (v, gd, bd) => v == null ? '' : v <= gd ? 'good' : v >= bd ? 'bad' : '';
+      h += `<div class="muted" style="margin-top:12px;font-size:12px">Klaviyo ${emk.join(' · ')}${mk.some(st => !emk.includes(st)) ? ' (DE and NL have no Klaviyo key)' : ''} · per ${eg}</div>` + grid(
+        kp('Emails sent', int(e.recv), vs(e.recv, pe && pe.recv)) + kp('People reached', int(e.recv_u), `${e.recv_u ? (e.recv / e.recv_u).toFixed(1) : '–'} emails each`) +
+        kp('List growth', (net(e) >= 0 ? '+' : '') + int(net(e)), `${int(e.sub)} new − ${int(e.unsub)} unsubscribed − ${int(e.spam_u)} spam`, net(e) >= 0 ? 'good' : 'bad') +
+        kp('New subscribers', int(e.sub), vs(e.sub, pe && pe.sub)) + kp('Unsubscribes', int(e.unsub), vs(e.unsub, pe && pe.unsub, true)) +
+        kp('Spam complaint rate', pct(rt(e, 'spam'), 3), 'under 0.1% · Google/Yahoo block at 0.3%', flag(rt(e, 'spam'), 0.001, 0.003)) + kp('Unsubscribe rate', pct(rt(e, 'unsub'), 2), 'per email sent · healthy under 0.3%', flag(rt(e, 'unsub'), 0.003, 0.005)) +
+        kp('Bounce rate', pct(rt(e, 'bounce'), 2), 'under 1%, 2% is a warning', flag(rt(e, 'bounce'), 0.01, 0.02)) + kp('Click rate', pct(e.recv_u ? e.click_u / e.recv_u : null, 1), `unique clickers ÷ people reached`) +
+        kp('Open rate', pct(e.recv_u ? e.open_u / e.recv_u : null, 0), 'inflated by Apple Mail privacy'), 170);
+      h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:12px">${card('he1', 'Emails sent vs people reached', '', lg([['Emails sent', '#c7b48b'], ['People reached', '#3a80c4']]))}${card('he5', 'Emails per person', 'sending frequency', '')}
+        ${card('he2', 'New subscribers vs people leaving', '', lg([['New subscribers', '#4fa37a'], ['Unsubscribes + spam', '#cf4640']]))}${card('he6', 'Net list growth', 'new − unsubscribed − spam', '')}
+        ${card('he3', 'Spam complaint rate', 'dashed line = 0.1% guideline', '', 220)}${card('he4', 'Unsubscribe and bounce rate', '', lg([['Unsubscribe', '#e08a3c'], ['Bounce', '#8f74d6']]), 220)}
+        ${card('he7', 'Click and open rate', 'per person reached', lg([['Click rate', '#4fa37a'], ['Open rate', '#8a8a94']]), 220)}</div>`;
+      const lab = er.map(r => eg === 'year' ? r.k : SH.month(r.k));
+      mk1('he1', {type:'line', data:{labels:lab, datasets:[line('Emails sent', er.map(r => r.recv), '#c7b48b'), line('People reached', er.map(r => r.recv_u), '#3a80c4')]}, options:opt(false, false)});
+      mk1('he5', {type:'bar', data:{labels:lab, datasets:[bar('Emails per person', er.map(r => r.recv_u ? +(r.recv / r.recv_u).toFixed(1) : null), '#c7b48b')]}, options:opt(false, false)});
+      mk1('he2', {type:'bar', data:{labels:lab, datasets:[bar('New subscribers', er.map(r => r.sub || 0), '#4fa37a'), bar('Unsubscribes + spam', er.map(r => (r.unsub || 0) + (r.spam_u || 0)), '#cf4640')]}, options:opt(false, false)});
+      mk1('he6', {type:'bar', data:{labels:lab, datasets:[bar('Net growth', er.map(net), er.map(r => net(r) >= 0 ? '#4fa37a' : '#cf4640'))]}, options:opt(false, false)});
+      mk1('he3', {type:'line', data:{labels:lab, datasets:[line('Spam rate', er.map(r => r.recv ? +(r.spam / r.recv * 100).toFixed(4) : null), '#cf4640'), line('Guideline', er.map(() => 0.1), '#8a8a94', {borderDash:[4, 4], borderWidth:1.5, pointRadius:0})]}, options:pctOpt()});
+      mk1('he4', {type:'line', data:{labels:lab, datasets:[line('Unsubscribe', er.map(r => r.recv ? +(r.unsub / r.recv * 100).toFixed(3) : null), '#e08a3c'), line('Bounce', er.map(r => r.recv ? +(r.bounce / r.recv * 100).toFixed(3) : null), '#8f74d6')]}, options:pctOpt()});
+      mk1('he7', {type:'line', data:{labels:lab, datasets:[line('Click rate', er.map(r => r.recv_u ? +(r.click_u / r.recv_u * 100).toFixed(2) : null), '#4fa37a'), line('Open rate', er.map(r => r.recv_u ? +(r.open_u / r.recv_u * 100).toFixed(1) : null), '#8a8a94')]}, options:pctOpt()});
+      h += tblWrap(`<table><thead><tr><th class="l">${eg === 'year' ? 'Year' : 'Month'}</th><th>Emails sent</th><th>People reached</th><th>Per person</th><th>New subscribers</th><th>Unsubscribes</th><th>Spam</th><th>Net growth</th><th>Spam rate</th><th>Unsub rate</th><th>Bounce rate</th><th>Open rate</th><th>Click rate</th></tr></thead><tbody>
+        ${er.slice().reverse().map(r => `<tr><td class="l">${eg === 'year' ? r.k : MONL(r.k)}${r.k === thisMonth ? ' <span class="muted">(running)</span>' : ''}</td><td class="num">${int(r.recv)}</td><td class="num">${int(r.recv_u)}</td><td class="num">${r.recv_u ? (r.recv / r.recv_u).toFixed(1) : '–'}</td><td class="num">${int(r.sub)}</td><td class="num">${int(r.unsub)}</td><td class="num">${int(r.spam)}</td>
+          <td class="num ${net(r) >= 0 ? 'good' : 'bad'}"><b>${net(r) >= 0 ? '+' : ''}${int(net(r))}</b></td><td class="num ${flag(rt(r, 'spam'), 0.001, 0.003)}">${pct(rt(r, 'spam'), 3)}</td><td class="num ${flag(rt(r, 'unsub'), 0.003, 0.005)}">${pct(rt(r, 'unsub'), 2)}</td><td class="num ${flag(rt(r, 'bounce'), 0.01, 0.02)}">${pct(rt(r, 'bounce'), 2)}</td>
+          <td class="num">${pct(r.recv_u ? r.open_u / r.recv_u : null, 0)}</td><td class="num">${pct(r.recv_u ? r.click_u / r.recv_u : null, 1)}</td></tr>`).join('')}</tbody></table>`) +
+        `<div class="note">Rates are per email sent. Net growth = new email subscribers − unsubscribes − people who marked spam. Benchmarks: Google/Yahoo sender rules (spam under 0.1%, never 0.3%), ecommerce averages (unsubscribe 0.1 to 0.3%, bounce under 1%). Open rate counts Apple Mail privacy opens, so click rate is the reliable engagement number.</div>`;
+    }
+  }
+
+  if (tab === 'support') {
+    h += `<div class="card" style="padding:18px;margin-top:14px"><b>Gorgias is not connected yet.</b><div class="muted" style="margin-top:6px">Once the Gorgias API key is in (Desktop file PASTE-GORGIAS-HERE.txt: your xxx.gorgias.com address, the user email, the API key), this tab shows what support teams at HexClad-size brands track:</div>
+      <ul class="muted" style="margin:10px 0 0 18px;line-height:1.8"><li>Tickets per day / week / month and growth, by channel (email, chat, Instagram, SMS)</li><li>Contact rate: tickets per 100 orders (DTC norm 5 to 10)</li><li>First response time and resolution time, median and 90th percentile</li><li>Tickets waiting over 24 hours (SLA breaches) and the open backlog</li><li>One-touch resolution rate, reopen rate, CSAT</li><li>Top contact reasons: where is my order, returns, damaged item, address change, discount code</li><li>Load per agent</li></ul></div>`;
+  }
+
+  if (tab === 'reviews') {
+    const tp = HL.trust || [];
+    let jn = 0, jw = 0; for (const st of mk) { const j = HL.stores[st].judgeme || {}; if (j.reviews) { jn += j.reviews; jw += j.reviews * j.rating; } }
+    h += grid(tp.map(t => kp('Trustpilot ' + t.domain, `${t.score != null ? t.score.toFixed(1) : '–'}<small style="font-size:14px;color:var(--muted)"> / 5</small>`, `${int(t.n)} reviews · ${t.dist && t.n ? Math.round(t.dist[4] / t.n * 100) + '% five-star · ' + Math.round(t.dist[0] / t.n * 100) + '% one-star' : ''}`, t.score >= 4 ? 'good' : 'bad')).join('') +
+      kp('Judge.me' + (mk.length > 1 ? ' (all stores)' : ' ' + S.market), jn ? (jw / jn).toFixed(2) + '<small style="font-size:14px;color:var(--muted)"> / 5</small>' : '–', `${int(jn)} product reviews`, 'good'), 220);
+    // Trustpilot monthly new reviews by star (from the review pages)
+    for (const t of tp) { const ms = t.months && t.months.months; if (!ms) continue;
+      const cut = t.months.oldest && t.months.oldest['5'] ? t.months.oldest['5'].slice(0, 7) : null;
+      const keys = Object.keys(ms).sort().filter(m => mIn(m, A, Bd) || pre === 'all'), id = 'hrT' + t.domain.replace(/\W/g, '');
+      h += `<div class="grid charts3" style="grid-template-columns:2fr 1fr;margin-top:14px">${card(id, 'Trustpilot ' + t.domain + ': new reviews per month', `by star${cut ? ` · 5-star reviews before ${MON(cut)} ${cut.slice(0, 4)} are not visible logged-out, so older months show only 1 to 4 stars` : ''}`, lg([['5', '#4fa37a'], ['4', '#9bc27a'], ['3', '#8a8a94'], ['2', '#e08a3c'], ['1', '#cf4640']]), 260)}
+        ${card(id + 'a', 'Average stars of new reviews', 'months with every star visible', '', 260)}</div>`;
+      const cols = ['#cf4640', '#e08a3c', '#8a8a94', '#9bc27a', '#4fa37a'];
+      mk1(id, {type:'bar', data:{labels:keys.map(m => SH.month(m)), datasets:[4, 3, 2, 1, 0].map(i => bar((i + 1) + ' star', keys.map(m => ms[m][i]), cols[i]))}, options:opt(true, false)});
+      mk1(id + 'a', {type:'line', data:{labels:keys.map(m => SH.month(m)), datasets:[line('Average stars', keys.map(m => { if (cut && m < cut) return null; const a = ms[m], n = a.reduce((x, y) => x + y, 0); return n ? +(a.reduce((x, y, i) => x + y * (i + 1), 0) / n).toFixed(2) : null; }), '#c7b48b')]},
+        options:{...opt(false, false), scales:{x:ax(false).x, y:{min:1, max:5, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
+    }
+    // score history (daily snapshots since the hub started tracking)
+    const snaps = tp.map(t => Object.entries(t.hist || {}).sort());
+    if (snaps.some(s => s.length)) { const days = [...new Set(snaps.flatMap(s => s.map(x => x[0])))].sort();
+      h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hrS', 'TrustScore over time', 'one snapshot per day since 10 Nov 2026', lg(tp.map((t, i) => [t.domain, i ? '#3a80c4' : '#cf4640'])), 220)}`;
+      const jd = [...new Set(mk.flatMap(st => Object.keys(HL.stores[st].judgemeHist || {})))].sort();
+      h += `${card('hrJ', 'Judge.me rating over time', 'one snapshot per day since 10 Nov 2026', lg(mk.map(st => [st, MKC[st]])), 220)}</div>`;
+      mk1('hrS', {type:'line', data:{labels:days.map(d => fmtD(d)), datasets:tp.map((t, i) => line(t.domain, days.map(d => (t.hist[d] || {}).s ?? null), i ? '#3a80c4' : '#cf4640'))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:3.5, max:5, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
+      mk1('hrJ', {type:'line', data:{labels:jd.map(d => fmtD(d)), datasets:mk.map(st => line(st, jd.map(d => ((HL.stores[st].judgemeHist || {})[d] || {}).r ?? null), MKC[st]))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:4.5, max:5, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
+    }
+    h += tblWrap(`<table><thead><tr><th class="l">Judge.me</th><th>Rating</th><th>Product reviews</th><th>Products with reviews</th></tr></thead><tbody>${mk.map(st => { const j = HL.stores[st].judgeme || {}; return `<tr><td class="l">${FLAGS[st]} ${st}</td><td class="num">${j.rating ? j.rating.toFixed(2) : '–'}</td><td class="num">${int(j.reviews)}</td><td class="num">${int(j.products)}</td></tr>`; }).join('')}</tbody></table>`);
+    h += tp.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px">${tp.map(t => `<div class="card" style="padding:16px"><div style="display:flex;justify-content:space-between"><b>${esc(t.domain)}</b><span class="num" style="font-size:22px">${t.score != null ? t.score.toFixed(1) : '–'}</span></div><div class="muted" style="font-size:12px;margin-bottom:10px">${int(t.n)} reviews</div>
+      ${(t.dist || []).map((n, i) => ({n, s:i + 1})).reverse().map(x => `<div class="rs-p" style="grid-template-columns:52px 1fr 60px"><span>${x.s} star</span><div class="bar"><i style="width:${t.n ? (x.n / t.n * 100).toFixed(1) : 0}%;background:${x.s >= 4 ? '#4fa37a' : x.s === 3 ? '#8a8a94' : '#cf4640'}"></i></div><b>${int(x.n)}</b></div>`).join('')}</div>`).join('')}</div>` : '';
+    h += `<div class="note">Judge.me ratings come from the review metafields Judge.me writes on every Shopify product (all products added up, so duplicated offer products count their reviews again). Trustpilot and Judge.me have no history API without your keys, so the hub stores one snapshot per day from now on; add the Judge.me private keys to get full history.</div>`;
+  }
 
   h += '</div>';
   afterRender.push(() => {
-    for (const id of ['hg', 'hlm', 'hz']) { const t = $('#' + id); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S[id] = bt.dataset.v; render(); } }; }
-    $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { if (el.dataset.more === 'p') S.hpAll = g; else if (el.dataset.more === 'e') S.heAll = true; else S.hcAll = gc; render(); });
-    const ax = {x:{stacked:true, grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:12, font:{size:10}}}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => money(v)}}};
-    const tip = {mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}};
-    const short = {day:d => fmtD(d), week:d => fmtD(d), month:d => MON(d) + ' ' + d.slice(2, 4), year:d => d};
-    charts.hP = new Chart($('#hP'), {type:'bar', data:{labels:ph.map(b => short[g](b.k)), datasets:mk.map(st => ({label:st, data:ph.map(b => b.st[st] ? +b.st[st].pr.toFixed(0) : 0), backgroundColor:MKC[st], borderRadius:2, maxBarThickness:Z.bar}))},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{...tip, titleFont:{size:13, weight:'600'}, bodyFont:{size:hz === 'l' ? 13 : 12},
-        callbacks:{...tip.callbacks, title:it => `${it[0].label}  ·  Total ${money(it.reduce((x, c) => x + c.raw, 0))}`}, filter:c => c.raw !== 0}}, scales:ax}});
-    charts.hC = new Chart($('#hC'), {type:'bar', data:{labels:ch.map(r => short[gc](r.k)), datasets:[
-      {label:'New customers', data:ch.map(r => r.nc), backgroundColor:'#b38b33', borderRadius:2, maxBarThickness:Z.bar}, {label:'Returning', data:ch.map(r => r.o - r.nc), backgroundColor:'#3a80c4', borderRadius:2, maxBarThickness:Z.bar}]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}}, scales:{x:{...ax.x, stacked:false}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}}, beginAtZero:true}}}});
-    const gch = ch.slice(-(gc === 'week' ? 26 : 18)), gidx = r => cb.indexOf(r);
-    const grow = (r, f) => { const p = cb[gidx(r) - 1]; return p && f(p) ? +((f(r) / f(p) - 1) * 100).toFixed(0) : null; };
-    charts.hG = new Chart($('#hG'), {type:'line', data:{labels:gch.map(r => short[gc](r.k)), datasets:[
-      {label:'New', data:gch.map(r => grow(r, x => x.nc)), borderColor:'#b38b33', backgroundColor:'#b38b33', borderWidth:2, pointRadius:2, tension:.25},
-      {label:'Returning', data:gch.map(r => grow(r, x => x.o - x.nc)), borderColor:'#3a80c4', backgroundColor:'#3a80c4', borderWidth:2, pointRadius:2, tension:.25}]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw > 0 ? '+' : ''}${c.raw}%`}}},
-        scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:6, font:{size:10}}}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => v + '%'}}}}});
-    charts.hK = new Chart($('#hK'), {type:'line', data:{labels:ch.map(r => short[gc](r.k)), datasets:[
-      {label:'Revenue', data:ch.map(r => +r.rev.toFixed(0)), borderColor:'#c7b48b', backgroundColor:'rgba(199,180,139,.12)', fill:true, borderWidth:2, pointRadius:hz === 'l' ? 3 : 1.5, tension:.25},
-      {label:'COGS', data:ch.map(r => +r.cogs.toFixed(0)), borderColor:'#cf4640', backgroundColor:'rgba(207,70,64,.15)', fill:true, borderWidth:2, pointRadius:hz === 'l' ? 3 : 1.5, tension:.25}]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{...tip, footer:it => it.length > 1 && it[0].raw ? 'COGS = ' + (it[1].raw / it[0].raw * 100).toFixed(1) + '% of revenue' : ''}}, scales:{x:{...ax.x, stacked:false}, y:{...ax.y, stacked:false, beginAtZero:true}}}});
-    charts.hKp = new Chart($('#hKp'), {type:'line', data:{labels:ch.map(r => short[gc](r.k)), datasets:[{label:'COGS %', data:ch.map(r => r.rev ? +(r.cogs / r.rev * 100).toFixed(1) : null), borderColor:'#cf4640', borderWidth:2, pointRadius:2, tension:.25}]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `COGS: ${c.raw}% of revenue`}}},
-        scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:12, font:{size:10}}}, y:{grid:{color:'#2a2a31'}, beginAtZero:true, ticks:{color:'#8a8a94', font:{size:10}, callback:v => v + '%'}}}}});
+    $('#view').querySelectorAll('[data-ht]').forEach(b => b.onclick = () => { S.ht = b.dataset.ht; render(); });
+    for (const id of ['hg', 'hlm', 'hz', 'hcmp', 'hcor']) { const t = $('#' + id); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S[id] = bt.dataset.v; render(); } }; }
+    const hp = $('#hpre'); if (hp) hp.onclick = ev => { const bt = ev.target.closest('button'); if (!bt) return; S.hpre = bt.dataset.v; if (bt.dataset.v === 'custom') { S.hfrom = A; S.hto = Bd; } S.hg = null; render(); };
+    const dch = () => { const f = $('#hfrom').value, t = $('#hto').value; if (f && t && f <= t) { S.hpre = 'custom'; S.hfrom = f; S.hto = t; S.hg = null; render(); } };
+    const hf = $('#hfrom'), ht = $('#hto'); if (hf) hf.onchange = dch; if (ht) ht.onchange = dch;
+    $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { const kk = el.dataset.more; if (kk === 'p') S.hpAll = g + A + Bd; if (kk === 'co') S.hcoAll = true; render(); });
+    after.forEach(f => f());
   });
   return h;
 }
