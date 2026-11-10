@@ -867,7 +867,7 @@ const MKC = {US:'#3a80c4', UK:'#cf4640', AU:'#b38b33', CA:'#8f74d6', DE:'#4fa37a
 const HTABS = [['overview','Overview'],['profit','Daily profit'],['customers','Customers & LTV'],['margins','Margins & COGS'],['email','Email'],['support','Customer service'],['reviews','Reviews']];
 const HPRE = [['today','Today'],['yday','Yesterday'],['7d','Last 7 days'],['14d','Last 14 days'],['30d','Last 30 days'],['90d','Last 90 days'],['365d','Last 365 days'],['-'],
   ['wk','This week'],['lw','Last week'],['m','This month'],['lm','Last month'],['q','This quarter'],['lq','Last quarter'],['ytd','This year'],['ly','Last year'],['-'],['all','Since day one']];
-const HCMP = [['prev','Previous period'],['pm','Previous month'],['py','Previous year'],['none','No comparison']];
+const HCMP = [['prev','Previous period'],['pw','Previous week'],['pm','Previous month'],['py','Previous year'],['pyw','Previous year (match day of week)'],['none','No comparison']];
 const shiftM = (d, n) => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + n, dd = +d.slice(8, 10), last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return iso(new Date(Date.UTC(y, m, Math.min(dd, last)))); };
 const mEndD = d => iso(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0)));
 function hRange(p, first) {
@@ -889,7 +889,7 @@ function hCompare(p, A, B, cmp) {
   if (cmp === 'none') return [null, null];
   if (cmp === 'custom' && S.hca && S.hcb) return [S.hca, S.hcb];
   const fullM = A.slice(8) === '01' && B === mEndD(B), sm = n => [shiftM(A, n), fullM ? mEndD(shiftM(B.slice(0, 8) + '01', n)) : shiftM(B, n)];
-  if (cmp === 'py') return sm(-12); if (cmp === 'pm') return sm(-1);
+  if (cmp === 'py') return sm(-12); if (cmp === 'pm') return sm(-1); if (cmp === 'pw') return [addD(A, -7), addD(B, -7)]; if (cmp === 'pyw') return [addD(A, -364), addD(B, -364)];
   if (p === 'today' || p === 'yday') return [addD(A, -1), addD(B, -1)];
   if (p === 'wk' || p === 'lw') return [addD(A, -7), addD(B, -7)];
   if (p === 'm' || p === 'lm') return sm(-1); if (p === 'q' || p === 'lq') return sm(-3); if (p === 'ytd' || p === 'ly') return sm(-12);
@@ -919,7 +919,7 @@ function pHealth() {
   const [A, Bd] = hRange(pre, first), cmp = ({yoy:'py'})[S.hcmp] || S.hcmp || 'prev';
   const span = nDays(A, Bd), nd = Math.max(1, nDays(A < first ? first : A, Bd > today ? today : Bd));
   const [CA, CB] = hCompare(pre, A, Bd, cmp);
-  const CL = {prev:'previous period', pm:'previous month', py:'last year', custom:'compare dates'}[cmp];
+  const CL = {prev:'previous period', pw:'previous week', pm:'previous month', py:'last year', pyw:'last year (same weekday)', custom:'compare dates'}[cmp];
   const inR = (d, a, b) => a && d >= a && d <= b, mIn = (m, a, b) => a && m >= a.slice(0, 7) && m <= b.slice(0, 7);
   const g = S.hg || (span <= 62 ? 'day' : span <= 200 ? 'week' : 'month');
   const KEY = {day:d => d, week:d => monday(d), month:d => d.slice(0, 7), year:d => d.slice(0, 4)};
