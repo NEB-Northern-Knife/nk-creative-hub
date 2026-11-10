@@ -13,6 +13,7 @@ let D = null;
 let ACCESS = null; // 'editor' | 'strategist' | 'owner' (Andy, 2026-11-09: access depends on the password)
 let REV = false;  // store revenue / spend / paid totals (strategist, owner)
 let UNL = false;  // net profit / orders / AOV / CPA (owner)
+let HL = null;    // business health (owner ONLY, Andy 2026-11-10): its key exists only in the owner entry
 const ROLE_NAME = {editor:'Editor & designer', strategist:'Strategist', owner:'Owner'};
 const b64 = x => Uint8Array.from(atob(x), ch => ch.charCodeAt(0));
 const gunzip = async buf => new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
@@ -30,7 +31,8 @@ async function login(pw) {
   for (const e of box.roles) { try { grant = await openBox(wrap, b64(e)); break; } catch (err) { /* not this role */ } }
   if (!grant) throw new Error('Wrong password');
   const layer = async name => openBox(b64(grant.keys[name]), new Uint8Array(await (await fetch(`data/${name}.bin`, {cache:'no-store'})).arrayBuffer()));
-  const [bd, rv, ow] = await Promise.all([layer('base'), grant.keys.rev ? layer('rev') : null, grant.keys.own ? layer('own') : null]);
+  const [bd, rv, ow, hl] = await Promise.all([layer('base'), grant.keys.rev ? layer('rev') : null, grant.keys.own ? layer('own') : null,
+    grant.role === 'owner' && grant.keys.health ? layer('health').catch(() => null) : null]);
   const empty = n => Array.from({length:n}, () => ({}));
   bd.kpi = rv ? rv.kpi : empty(bd.days.length); bd.mkpi = rv ? rv.mkpi : empty((bd.months || []).length);
   bd.paid = rv ? rv.paid : empty(bd.days.length); bd.mpaid = rv ? rv.mpaid : empty((bd.months || []).length);
@@ -39,9 +41,9 @@ async function login(pw) {
     (ow.mkpi || []).forEach((mo, i) => { for (const [st, q] of Object.entries(mo)) if (bd.mkpi[i] && bd.mkpi[i][st]) bd.mkpi[i][st] = bd.mkpi[i][st].concat(q); });
   }
   if (bd.v !== 2) throw new Error('old data format');
-  D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; memo.clear();
+  D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
-const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['strategist','owner']};
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['strategist','owner'], health:['owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev'};
 const charts = {};
@@ -284,7 +286,8 @@ const ICONS = {
   insights:'<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['markets','Markets'],
+ICONS.health = '<path d="M3 12h4l2-5 4 10 2-5h6"/>';
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['markets','Markets'],['health','Business health'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -404,7 +407,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, production:pProduction, markets:pMarkets, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, markets:pMarkets, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireCards(v);
@@ -760,6 +763,162 @@ function pReports() {
       options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}},
         scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', font:{size:9}, maxRotation:0, autoSkip:true, maxTicksLimit:6}}, y:{beginAtZero:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', precision:0, font:{size:10}}}}}});
   }));
+  return h;
+}
+/* ---------------- business health (Andy, 2026-11-10: OWNER ONLY) ---------------- */
+const MKC = {US:'#3a80c4', UK:'#cf4640', AU:'#b38b33', CA:'#8f74d6', DE:'#4fa37a', NL:'#e08a3c'};
+function pHealth() {
+  if (ACCESS !== 'owner' || !HL) return `<div class="page-head"><div><div class="kicker">Owner only</div><h1>Business health</h1></div></div><div class="empty">This page needs the owner password.</div>`;
+  const mk = (S.market === 'ALL' ? Object.keys(HL.stores) : [S.market]).filter(st => HL.stores[st]);
+  const g = S.hg || 'month', gc = g === 'day' ? 'week' : g; // customers + COGS have no daily view
+  const KEY = {day:d => d, week:d => monday(d), month:d => d.slice(0, 7), year:d => d.slice(0, 4)};
+  const LAB = {day:d => P(d).toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short', year:'2-digit', timeZone:'UTC'}),
+    week:d => 'w/c ' + P(d).toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'2-digit', timeZone:'UTC'}), month:d => MONL(d), year:d => d};
+  const today = D.today, thisMonth = today.slice(0, 7);
+  const sgn = (v, d = 0) => `<span class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '▲ +' : '▼ '}${(v * 100).toFixed(d)}%</span>`;
+  const gr = (c, p) => p ? sgn(c / p - 1) : '<span class="muted">–</span>';
+  const tabs = (id, cur, opts) => `<div class="tabs-mini" id="${id}">${opts.map(([v, l]) => `<button data-v="${v}" class="${cur === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const more = (id, n, shown) => n > shown ? `<button class="btn ghost sm" data-more="${id}" style="margin-top:10px">Show all ${n} rows</button>` : '';
+
+  // daily revenue / spend / profit, displayed currency: sheet first, Triple Whale after the sheet ends
+  const daily = {};
+  for (const st of mk) { const o = HL.stores[st], c = k(st);
+    for (const [d, v] of Object.entries(o.sheet || {})) (daily[d] || (daily[d] = {}))[st] = [v[0] * c, v[1] * c, v[2] * c, 'S'];
+    for (const [d, v] of Object.entries(o.tw || {})) (daily[d] || (daily[d] = {}))[st] = [v[0] * c, v[1] * c, v[2] * c, 'T'];
+  }
+  const dates = Object.keys(daily).sort(), first = dates[0] || today;
+  const bucket = (keyf) => { const out = new Map();
+    for (const d of dates) { const kk = keyf(d); const b = out.get(kk) || {k:kk, st:{}, rev:0, sp:0, pr:0, src:new Set()};
+      for (const [st, v] of Object.entries(daily[d])) { const x = b.st[st] || (b.st[st] = {rev:0, sp:0, pr:0}); x.rev += v[0]; x.sp += v[1]; x.pr += v[2]; b.rev += v[0]; b.sp += v[1]; b.pr += v[2]; b.src.add(v[3]); }
+      out.set(kk, b); }
+    return [...out.values()]; };
+  const pb = bucket(KEY[g]);
+  const sum = (a, b) => dates.filter(d => d >= a && d <= b).reduce((x, d) => x + Object.values(daily[d]).reduce((y, v) => y + v[2], 0), 0);
+  const life = sum('0000', today), ytd = sum(today.slice(0, 4) + '-01-01', today), lyStart = (+today.slice(0, 4) - 1) + '-01-01', lytd = sum(lyStart, (+today.slice(0, 4) - 1) + today.slice(4));
+  const spendIn = (a, b) => dates.filter(d => d >= a && d <= b).reduce((x, d) => x + Object.values(daily[d]).reduce((y, v) => y + v[1], 0), 0);
+
+  // customers: months / weeks from Triple Whale orders
+  const crow = (st, r) => { const c = k(st); return {o:r[1], nc:r[2], rev:r[3] * c, ncrev:r[4] * c, cogs:r[5] * c}; };
+  const cust = (gran) => { const out = new Map();
+    for (const st of mk) { const o = HL.stores[st]; const src = gran === 'week' ? o.weeks : (o.months || []);
+      for (const r of src || []) { const kk = gran === 'year' ? r[0].slice(0, 4) : r[0]; const x = crow(st, r); const b = out.get(kk) || {k:kk, o:0, nc:0, rev:0, ncrev:0, cogs:0};
+        for (const f in x) b[f] += x[f]; out.set(kk, b); } }
+    return [...out.values()].sort((x, y) => x.k < y.k ? -1 : 1); };
+  const cm = cust('month'), cb = cust(gc);
+  const ncIn = (a, b) => cm.filter(r => r.k >= a.slice(0, 7) && r.k <= b.slice(0, 7)).reduce((x, r) => x + r.nc, 0);
+
+  // LTV: first-order-month cohorts, weighted by customers who have had the full window
+  const lt = new Map();
+  for (const st of mk) { const c = k(st);
+    for (const r of HL.stores[st].ltv || []) { const b = lt.get(r.m) || {m:r.m, n:0, rall:0, gall:0, rep:0, ord:0};
+      b.n += r.n; b.rall += r.rall * r.n * c; b.gall += r.gall * r.n * c; b.rep += r.rep; b.ord += r.ord * r.n;
+      for (const w of [0, 30, 90, 180, 365]) { if (r['m' + w]) { b['r' + w] = (b['r' + w] || 0) + r['r' + w] * r['m' + w] * c; b['g' + w] = (b['g' + w] || 0) + r['g' + w] * r['m' + w] * c; b['m' + w] = (b['m' + w] || 0) + r['m' + w]; } }
+      lt.set(r.m, b); } }
+  const addM = (m, n) => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); };
+  const win = (w, from, to) => { let n = 0, r = 0, gp = 0, ms = []; for (const b of lt.values()) if (b.m >= from && b.m <= to && b['m' + w]) { n += b['m' + w]; r += b['r' + w]; gp += b['g' + w]; ms.push(b.m); }
+    return {n, r:n ? r / n : null, g:n ? gp / n : null, from, to}; };
+  const L365 = win(365, addM(thisMonth, -24), addM(thisMonth, -13)), L90 = win(90, addM(thisMonth, -15), addM(thisMonth, -4));
+  const cacOf = (from, to) => { const nc = ncIn(from + '-01', to + '-31'); return nc ? spendIn(from + '-01', to + '-31') / nc : null; };
+  const C365 = cacOf(L365.from, L365.to), C90 = cacOf(L90.from, L90.to);
+  const cac90d = (() => { const a = addD(today, -89); const nc = cb.length ? cust('week').filter(r => r.k >= monday(a)).reduce((x, r) => x + r.nc, 0) : 0; return nc ? spendIn(a, today) / nc : null; })();
+  let allN = 0, allRep = 0; for (const b of lt.values()) { allN += b.n; allRep += b.rep; }
+  const m90 = cm.filter(r => r.k >= addM(thisMonth, -2)), rcShare = m90.reduce((x, r) => x + r.o, 0) ? m90.reduce((x, r) => x + r.o - r.nc, 0) / m90.reduce((x, r) => x + r.o, 0) : null;
+  const ratio = (l, c) => l && c ? l / c : null, rx = v => v == null ? '–' : x2(v), rq = v => v == null ? '' : v >= 3 ? 'good' : v >= 1 ? '' : 'bad';
+  const mrange = (a, b) => `${MON(a)} ${a.slice(2, 4)} to ${MON(b)} ${b.slice(2, 4)}`;
+
+  let h = `<div class="page-head"><div><div class="kicker">Owner only · nobody else can open this page or its data</div><h1>Business health</h1></div>
+    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined' : S.market} · ${curCode()} · since ${fmtD(first)} ${first.slice(0, 4)}</div></div>`;
+  const kp = (lbl, val, sub, cls = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num ${cls}">${val}</div><div class="delta">${sub}</div></div>`;
+  const tp = HL.trust || [];
+  h += `<div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px">
+    ${kp('Profit since day one', money(life), `${mk.length > 1 ? mk.length + ' markets' : S.market} since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}`, life >= 0 ? 'good' : 'bad')}
+    ${kp('Profit this year', money(ytd), `${gr(ytd, lytd)} vs same days last year (${money(lytd)})`, ytd >= 0 ? 'good' : 'bad')}
+    ${kp('LTV after 365 days', L365.r != null ? money(L365.r, 0) : '–', `gross profit ${L365.g != null ? money(L365.g, 0) : '–'} · customers from ${mrange(L365.from, L365.to)}`)}
+    ${kp('LTV after 90 days', L90.r != null ? money(L90.r, 0) : '–', `gross profit ${L90.g != null ? money(L90.g, 0) : '–'} · customers from ${mrange(L90.from, L90.to)}`)}
+    ${kp('CAC', cac90d != null ? money(cac90d, 0) : '–', 'ad spend ÷ new customers, last 90 days')}
+    ${kp('LTV / CAC (365 days)', rx(ratio(L365.g, C365)), `gross-profit LTV ÷ CAC of the same months (${C365 != null ? money(C365, 0) : '–'}) · revenue LTV ÷ CAC ${rx(ratio(L365.r, C365))}`, rq(ratio(L365.g, C365)))}
+    ${kp('LTV / CAC (90 days)', rx(ratio(L90.g, C90)), `gross profit · CAC ${C90 != null ? money(C90, 0) : '–'} · revenue LTV ÷ CAC ${rx(ratio(L90.r, C90))}`, rq(ratio(L90.g, C90)))}
+    ${kp('Repeat customers', pct(allN ? allRep / allN : null), `bought 2+ times · returning = ${pct(rcShare, 0)} of orders, last 3 months`)}
+    ${tp.map(t => kp('Trustpilot ' + (t.domain.endsWith('.co.uk') ? '🇬🇧 .co.uk' : '🇺🇸 .com'), `${t.score != null ? t.score.toFixed(1) : '–'} <small style="font-size:14px;color:var(--muted)">/ 5</small>`,
+      `${int(t.n)} reviews · ${t.dist ? Math.round(t.dist[4] / t.n * 100) + '% five-star, ' + Math.round(t.dist[0] / t.n * 100) + '% one-star' : ''}`, t.score >= 4 ? 'good' : 'bad')).join('')}
+  </div>`;
+  const ends = mk.map(st => HL.stores[st].sheetEnd ? `${FLAGS[st]} ${fmtD(HL.stores[st].sheetEnd)} ${HL.stores[st].sheetEnd.slice(2, 4)}` : '').filter(Boolean).join(' · ');
+  h += `<div class="note" style="margin-top:10px">Profit comes from your Calcul Profit sheet up to the last day filled per market (${ends}), then Triple Whale net profit (same as HQ, Australia's custom expenses added back). LTV, cohorts, new vs returning and COGS come from Triple Whale orders since 2022. LTV = order revenue per new customer, counted only for customers who have had the full 90 or 365 days. CAC = ad spend ÷ new customers. ${S.market === 'ALL' ? 'Combined figures are in USD at today\'s rates.' : ''}</div>`;
+
+  // ---- profit
+  const ph = g === 'day' ? pb.slice(-120) : pb, showAllP = S.hpAll === g;
+  h += `<div class="chart-top" style="margin-top:22px"><h2 class="sec" style="margin:0">Profit ${g === 'day' ? 'per day' : 'per ' + g} <small>${mk.length > 1 ? 'every market + combined' : S.market}</small></h2>${tabs('hg', g, [['day','Day'],['week','Week'],['month','Month'],['year','Year']])}</div>
+    <div class="card chart-card" style="margin-top:10px">${mk.length > 1 ? `<div class="legend">${mk.map(st => `<span><i style="background:${MKC[st]}"></i>${st}</span>`).join('')}</div>` : ''}<div class="sub">${g === 'day' ? 'last 120 days in the chart, every day in the table' : ''}</div><div class="chart-wrap" style="height:280px"><canvas id="hP"></canvas></div></div>`;
+  const prow = pb.slice().reverse(), pshow = showAllP ? prow : prow.slice(0, g === 'day' ? 62 : g === 'week' ? 26 : 24);
+  h += `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${g[0].toUpperCase() + g.slice(1)}</th>${mk.length > 1 ? mk.map(st => `<th>${FLAGS[st]} ${st}</th>`).join('') : ''}<th>${mk.length > 1 ? 'Combined profit' : 'Profit'}</th><th>Revenue</th><th>Ad spend</th><th>Margin</th><th>Source</th></tr></thead><tbody>
+    ${pshow.map(b => `<tr><td class="l">${LAB[g](b.k)}</td>${mk.length > 1 ? mk.map(st => `<td class="num ${b.st[st] && b.st[st].pr < 0 ? 'bad' : ''}">${b.st[st] ? money(b.st[st].pr) : '<span class="muted">–</span>'}</td>`).join('') : ''}<td class="num ${b.pr < 0 ? 'bad' : 'good'}"><b>${money(b.pr)}</b></td><td class="num">${money(b.rev)}</td><td class="num">${money(b.sp)}</td><td class="num">${b.rev ? pct(b.pr / b.rev, 0) : '–'}</td><td class="muted" style="font-size:11px">${[...b.src].map(x => x === 'S' ? 'Sheet' : 'TW').join(' + ')}</td></tr>`).join('')}
+    </tbody></table></div>${showAllP ? '' : more('p', prow.length, pshow.length)}`;
+
+  // ---- new vs returning
+  const ch = gc === 'week' ? cb.slice(-52) : cb, crows = cb.slice().reverse(), showAllC = S.hcAll === gc, cshow = showAllC ? crows : crows.slice(0, gc === 'week' ? 26 : 24);
+  const prevOf = (arr, i) => arr[i + 1];
+  h += `<h2 class="sec" style="margin-top:26px">New vs returning customers <small>orders per ${gc}${g === 'day' ? ' (no daily view)' : ''}</small></h2>
+    <div class="grid charts3" style="grid-template-columns:2fr 1fr;margin-top:10px">
+      <div class="card chart-card"><div class="legend"><span><i style="background:#b38b33"></i>New customers</span><span><i style="background:#3a80c4"></i>Returning customers</span></div><div class="chart-wrap" style="height:260px"><canvas id="hC"></canvas></div></div>
+      <div class="card chart-card"><h3>Growth vs previous ${gc}</h3><div class="sub">new vs returning orders, %</div><div class="legend"><span><i style="background:#b38b33"></i>New</span><span><i style="background:#3a80c4"></i>Returning</span></div><div class="chart-wrap" style="height:226px"><canvas id="hG"></canvas></div></div></div>
+    <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${gc[0].toUpperCase() + gc.slice(1)}</th><th>New customers</th><th>Growth</th><th>Returning orders</th><th>Growth</th><th>Returning share</th><th>New-customer revenue</th><th>Returning revenue</th><th>CAC</th></tr></thead><tbody>
+    ${cshow.map((r, i) => { const p = prevOf(crows, i); const sp = gc === 'year' ? spendIn(r.k + '-01-01', r.k + '-12-31') : gc === 'month' ? spendIn(r.k + '-01', r.k + '-31') : spendIn(r.k, addD(r.k, 6));
+      return `<tr><td class="l">${LAB[gc](r.k)}</td><td class="num"><b>${int(r.nc)}</b></td><td class="num">${p ? gr(r.nc, p.nc) : '–'}</td><td class="num"><b>${int(r.o - r.nc)}</b></td><td class="num">${p ? gr(r.o - r.nc, p.o - p.nc) : '–'}</td>
+        <td class="num">${r.o ? pct((r.o - r.nc) / r.o, 0) : '–'}</td><td class="num">${money(r.ncrev)}</td><td class="num">${money(r.rev - r.ncrev)}</td><td class="num">${r.nc && sp ? money(sp / r.nc, 0) : '–'}</td></tr>`; }).join('')}
+    </tbody></table></div>${showAllC ? '' : more('c', crows.length, cshow.length)}`;
+
+  // ---- COGS
+  h += `<h2 class="sec" style="margin-top:26px">COGS <small>cost of goods per ${gc}, Triple Whale orders</small></h2>
+    <div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      <div class="card chart-card"><h3>COGS</h3><div class="sub">${curCode()}</div><div class="chart-wrap" style="height:220px"><canvas id="hK"></canvas></div></div>
+      <div class="card chart-card"><h3>COGS as % of revenue</h3><div class="sub">lower is better</div><div class="chart-wrap" style="height:220px"><canvas id="hKp"></canvas></div></div></div>
+    <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${gc[0].toUpperCase() + gc.slice(1)}</th><th>Revenue</th><th>COGS</th><th>COGS %</th><th>Gross profit</th><th>Gross margin</th><th>Orders</th><th>COGS / order</th></tr></thead><tbody>
+    ${cshow.map(r => `<tr><td class="l">${LAB[gc](r.k)}</td><td class="num">${money(r.rev)}</td><td class="num"><b>${money(r.cogs)}</b></td><td class="num">${r.rev ? pct(r.cogs / r.rev, 1) : '–'}</td><td class="num">${money(r.rev - r.cogs)}</td><td class="num">${r.rev ? pct(1 - r.cogs / r.rev, 0) : '–'}</td><td class="num">${int(r.o)}</td><td class="num">${r.o ? money(r.cogs / r.o, 2) : '–'}</td></tr>`).join('')}
+    </tbody></table></div>${showAllC ? '' : more('c', crows.length, cshow.length)}`;
+
+  // ---- LTV cohorts
+  const hm = S.hlm || 'rev', KS = [0, 1, 2, 3, 6, 9, 12, 18, 24];
+  const coh = new Map(); for (const st of mk) { const c = k(st); for (const [m, kk, act, rev, gp] of HL.stores[st].cohort || []) { const b = coh.get(m) || {}; const x = b[kk] || (b[kk] = {rev:0, gp:0, act:0}); x.rev += rev * c; x.gp += gp * c; x.act += act; coh.set(m, b); } }
+  const cms = [...lt.keys()].sort().slice(-24).reverse();
+  const cell = (m, K) => { if (addM(m, K) > thisMonth) return null; const b = coh.get(m) || {}, n = (lt.get(m) || {}).n; if (!n) return null; let s = 0; for (const kk in b) if (+kk <= K) s += b[kk][hm === 'rev' ? 'rev' : 'gp']; return {v:s / n, part:addM(m, K) === thisMonth}; };
+  let vmax = 1; for (const m of cms) for (const K of KS) { const c = cell(m, K); if (c && c.v > vmax) vmax = c.v; }
+  h += `<div class="chart-top" style="margin-top:26px"><h2 class="sec" style="margin:0">LTV cohorts <small>${hm === 'rev' ? 'revenue' : 'gross profit'} per customer, by month of first order, cumulative</small></h2>${tabs('hlm', hm, [['rev','Revenue'],['gp','Gross profit']])}</div>
+    <div class="tbl-wrap" style="margin-top:10px"><table class="cohort"><thead><tr><th class="l">First order</th><th>Customers</th><th>CAC</th>${KS.map(K => `<th>${K === 0 ? 'First month' : 'Month ' + K}</th>`).join('')}<th>LTV / CAC<br><small>month 12, gross profit</small></th><th>Bought again</th></tr></thead><tbody>
+    ${cms.map(m => { const b = lt.get(m), cac = cacOf(m, m); const g12 = (() => { if (addM(m, 12) > thisMonth) return null; const cc = coh.get(m) || {}; let s = 0; for (const kk in cc) if (+kk <= 12) s += cc[kk].gp; return b.n ? s / b.n : null; })();
+      return `<tr><td class="l">${MON(m)} ${m.slice(0, 4)}</td><td class="num">${int(b.n)}</td><td class="num">${cac != null ? money(cac, 0) : '–'}</td>
+        ${KS.map(K => { const c = cell(m, K); return c ? `<td class="num" style="background:rgba(179,139,51,${(0.08 + 0.5 * Math.max(0, c.v) / vmax).toFixed(2)})${c.part ? ';font-style:italic;opacity:.75' : ''}" title="${c.part ? 'month still running' : ''}">${money(c.v, 0)}</td>` : '<td></td>'; }).join('')}
+        <td class="num ${rq(ratio(g12, cac))}">${rx(ratio(g12, cac))}</td><td class="num">${pct(b.n ? b.rep / b.n : null, 1)}</td></tr>`; }).join('')}
+    </tbody></table></div><div class="note">Each cell = total ${hm === 'rev' ? 'order revenue' : 'gross profit (revenue minus COGS)'} from that month's new customers up to that month, divided by the number of new customers. Italic = month still running. CAC = that month's ad spend ÷ that month's new customers.</div>`;
+
+  // ---- Trustpilot detail
+  if (tp.length) h += `<h2 class="sec" style="margin-top:26px">Trustpilot</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">${tp.map(t => `<div class="card" style="padding:16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><b>${esc(t.domain)}</b><span class="num" style="font-size:22px">${t.score != null ? t.score.toFixed(1) : '–'}</span></div><div class="muted" style="font-size:12px;margin-bottom:10px">${int(t.n)} reviews</div>
+      ${(t.dist || []).map((n, i) => ({n, s:i + 1})).reverse().map(x => `<div class="rs-p" style="grid-template-columns:52px 1fr 60px"><span>${x.s} star</span><div class="bar"><i style="width:${t.n ? (x.n / t.n * 100).toFixed(1) : 0}%;background:${x.s >= 4 ? '#4fa37a' : x.s === 3 ? '#8a8a94' : '#cf4640'}"></i></div><b>${int(x.n)}</b></div>`).join('')}</div>`).join('')}</div>`;
+
+  afterRender.push(() => {
+    for (const id of ['hg', 'hlm']) { const t = $('#' + id); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S[id] = bt.dataset.v; render(); } }; }
+    $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { if (el.dataset.more === 'p') S.hpAll = g; else S.hcAll = gc; render(); });
+    const ax = {x:{stacked:true, grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:12, font:{size:10}}}, y:{stacked:true, grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => money(v)}}};
+    const tip = {mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${money(c.raw)}`}};
+    const short = {day:d => fmtD(d), week:d => fmtD(d), month:d => MON(d) + ' ' + d.slice(2, 4), year:d => d};
+    charts.hP = new Chart($('#hP'), {type:'bar', data:{labels:ph.map(b => short[g](b.k)), datasets:mk.map(st => ({label:st, data:ph.map(b => b.st[st] ? +b.st[st].pr.toFixed(0) : 0), backgroundColor:MKC[st], borderRadius:2, maxBarThickness:28}))},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{...tip, footer:it => 'Total: ' + money(it.reduce((x, c) => x + c.raw, 0))}}, scales:ax}});
+    charts.hC = new Chart($('#hC'), {type:'bar', data:{labels:ch.map(r => short[gc](r.k)), datasets:[
+      {label:'New customers', data:ch.map(r => r.nc), backgroundColor:'#b38b33', borderRadius:2, maxBarThickness:22}, {label:'Returning', data:ch.map(r => r.o - r.nc), backgroundColor:'#3a80c4', borderRadius:2, maxBarThickness:22}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false}}, scales:{x:{...ax.x, stacked:false}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}}, beginAtZero:true}}}});
+    const gch = ch.slice(-(gc === 'week' ? 26 : 18)), gidx = r => cb.indexOf(r);
+    const grow = (r, f) => { const p = cb[gidx(r) - 1]; return p && f(p) ? +((f(r) / f(p) - 1) * 100).toFixed(0) : null; };
+    charts.hG = new Chart($('#hG'), {type:'line', data:{labels:gch.map(r => short[gc](r.k)), datasets:[
+      {label:'New', data:gch.map(r => grow(r, x => x.nc)), borderColor:'#b38b33', backgroundColor:'#b38b33', borderWidth:2, pointRadius:2, tension:.25},
+      {label:'Returning', data:gch.map(r => grow(r, x => x.o - x.nc)), borderColor:'#3a80c4', backgroundColor:'#3a80c4', borderWidth:2, pointRadius:2, tension:.25}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `${c.dataset.label}: ${c.raw > 0 ? '+' : ''}${c.raw}%`}}},
+        scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:6, font:{size:10}}}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94', font:{size:10}, callback:v => v + '%'}}}}});
+    charts.hK = new Chart($('#hK'), {type:'bar', data:{labels:ch.map(r => short[gc](r.k)), datasets:[{label:'COGS', data:ch.map(r => +r.cogs.toFixed(0)), backgroundColor:'#cf4640', borderRadius:2, maxBarThickness:22}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:tip}, scales:{x:{...ax.x, stacked:false}, y:{...ax.y, stacked:false, beginAtZero:true}}}});
+    charts.hKp = new Chart($('#hKp'), {type:'line', data:{labels:ch.map(r => short[gc](r.k)), datasets:[{label:'COGS %', data:ch.map(r => r.rev ? +(r.cogs / r.rev * 100).toFixed(1) : null), borderColor:'#cf4640', borderWidth:2, pointRadius:2, tension:.25}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{mode:'index', intersect:false, callbacks:{label:c => `COGS: ${c.raw}% of revenue`}}},
+        scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', maxRotation:0, autoSkip:true, maxTicksLimit:12, font:{size:10}}}, y:{grid:{color:'#2a2a31'}, beginAtZero:true, ticks:{color:'#8a8a94', font:{size:10}, callback:v => v + '%'}}}}});
+  });
   return h;
 }
 function gran() { if (['week','lastweek','7d'].includes(S.preset)) return 'week'; if (S.preset === 'custom') return nDays(S.from, S.to) <= 14 ? 'week' : 'month'; return 'month'; }
