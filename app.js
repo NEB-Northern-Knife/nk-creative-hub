@@ -1326,25 +1326,40 @@ function pProduction() {
 
 /* ---------------- other pages ---------------- */
 function pMarkets() {
-  const [a, b] = R(), mk = minK();
-  let h = head(REV ? 'Every country at a glance' : 'Best video in every country', 'Markets') + '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(330px,1fr))">';
+  const [a, b] = R(), mk = minK(), [ca, cb] = compareRange(a, b), hasC = ca >= MIN_DAY;
+  let h = head(REV ? 'Every country at a glance' : 'Best video in every country', 'Markets') + '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">';
   const save = S.market;
+  // shares are computed in USD across all markets (Andy 2026-11-10: % of sales, profit, growth, active ads per country)
+  S.market = 'ALL';
+  const usd = {}; for (const st of D.stores) usd[st.code] = kpis(a, b, st.code);
+  const all = kpis(a, b, 'ALL');
+  const gr = (c, p, inv) => { if (!hasC || p == null || !isFinite(p) || p === 0) return ''; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0; return ` <span class="${good ? 'up' : 'down'}" style="font-size:11px">${d >= 0 ? '▲' : '▼'}${Math.abs(d * 100).toFixed(0)}%</span>`; };
+  const cell = (l, v, sub = '') => `<div class="mkc"><div class="muted">${l}</div><b class="num">${v}</b>${sub ? `<div class="mks">${sub}</div>` : ''}</div>`;
+  const shr = (v, t, col) => { const x = t ? Math.max(0, v / t) : 0; return `<div class="mkbar"><i style="width:${Math.min(100, x * 100).toFixed(1)}%;background:${col}"></i></div><span>${(x * 100).toFixed(1)}%</span>`; };
   for (const st of D.stores) {
     S.market = st.code;
-    const o = kpis(a, b, st.code), cs = concepts(a, b, st.code);
+    const o = kpis(a, b, st.code), p = hasC ? kpis(ca, cb, st.code) : null, cs = concepts(a, b, st.code), u = usd[st.code];
+    const ads = adSums(a, b, st.code).filter(x => x.sp > 0), vids = ads.filter(x => x.ad.kind === 'VID').length, imgs = ads.filter(x => x.ad.kind === 'IMG').length;
+    const fresh = ads.filter(x => x.ad.launched && x.ad.launched >= a && x.ad.launched <= b).length;
     const bv = cs.filter(c => c.kind === 'VID' && c.sp >= mk).sort((x, y) => y.r[S.model] - x.r[S.model])[0];
     const bs = cs.filter(c => c.kind === 'IMG' && c.sp >= mk).sort((x, y) => y.r[S.model] - x.r[S.model])[0];
     const best = (c, lbl) => c ? `<div class="card mk" data-c="${esc(c.key)}" data-st="${st.code}" style="margin:0"><div class="thumb" style="background-image:url('${esc(c.thumb || '')}')"></div><div class="body"><div class="s">${lbl}</div><div class="ttl">${esc((c.id || '') + ' ' + c.title)}</div><div class="s"><span class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</span> · ${money(c.sp)}</div></div></div>` : `<div class="empty" style="padding:20px">No ${lbl.toLowerCase()}</div>`;
+    const col = ({US:'#3a80c4', UK:'#cf4640', AU:'#b38b33', CA:'#8f74d6', DE:'#4fa37a', NL:'#e08a3c'})[st.code] || '#c7b48b';
     h += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div class="wordmark" style="font-size:28px">${FLAGS[st.code]} ${st.code}</div><span class="pill">${st.cur}</span></div>
-      ${REV ? `<div class="grid" style="grid-template-columns:repeat(${UNL ? 3 : 2},1fr);gap:8px;margin:12px 0">
-        <div><div class="muted" style="font-size:11px">REVENUE</div><b class="num">${money(o.sales)}</b></div>
-        <div><div class="muted" style="font-size:11px">${MODELS[S.model].toUpperCase()} ROAS</div><b class="num ${rc(o.r[S.model])}">${x2(o.r[S.model])}</b></div>
-        ${UNL ? `<div><div class="muted" style="font-size:11px">PROFIT</div><b class="num">${money(o.profit)}</b></div>` : ''}</div>` : '<div style="height:12px"></div>'}
+      ${REV ? `<div class="mkg">
+        ${cell('Revenue', money(o.sales) + gr(o.sales, p && p.sales), shr(u.sales, all.sales, col) + ' of sales')}
+        ${cell('Ad spend', money(o.spend) + gr(o.spend, p && p.spend, true), shr(u.spend, all.spend, col) + ' of spend')}
+        ${cell(MODELS[S.model] + ' ROAS', `<span class="${rc(o.r[S.model])}">${x2(o.r[S.model])}</span>`, `blended ${o.spend ? x2(o.sales / o.spend) : '–'} · MER ${o.sales ? pct(o.spend / o.sales, 0) : '–'}`)}
+        ${UNL ? cell('Profit', `<span class="${o.profit < 0 ? 'bad' : ''}">${money(o.profit)}</span>` + gr(o.profit, p && p.profit), (all.profit > 0 && u.profit > 0 ? shr(u.profit, all.profit, col) + ' of profit · ' : '') + 'margin ' + (o.sales ? pct(o.profit / o.sales, 1) : '–')) : ''}
+        ${UNL ? cell('Orders', int(o.orders) + gr(o.orders, p && p.orders), `AOV ${o.orders ? money(o.aov, 0) : '–'}`) : ''}
+        ${UNL ? cell('New customers', int(o.ncOrders) + gr(o.ncOrders, p && p.ncOrders), `CAC ${o.ncOrders ? money(o.ncCpa, 0) : '–'}${gr(o.ncCpa, p && p.ncCpa, true)}`) : ''}
+      </div>` : '<div style="height:12px"></div>'}
+      <div class="mkads"><span><b>${ads.length}</b> ads live</span><span>${vids} videos · ${imgs} statics</span><span><b>${fresh}</b> new in these dates</span></div>
       <div class="grid" style="grid-template-columns:${canSee('statics') ? '1fr 1fr' : '1fr'};gap:10px">${best(bv, 'Best video')}${canSee('statics') ? best(bs, 'Best static') : ''}</div></div>`;
   }
   S.market = save;
   afterRender.push(() => document.querySelectorAll('.mk[data-st]').forEach(el => el.onclick = () => openConcept(el.dataset.c, el.dataset.st)));
-  return h + '</div>';
+  return h + `</div><div class="note">${hasC ? `▲▼ = change vs ${fmtD(ca)} – ${fmtD(cb)}. ` : ''}Shares are of all markets combined, in USD. Ads live = ads that spent in these dates.</div>`;
 }
 function pRookies() {
   const [a, b] = R();
