@@ -580,3 +580,13 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 .info-dr p,.info-dr li{font-size:14px;line-height:1.6;color:var(--text2)}
 .info-dr ul{margin:0;padding-left:18px}
 .info-dr .ours{background:#c7b48b14;border:1px solid #c7b48b33;border-radius:10px;padding:10px 12px;color:var(--text)}
+
+/* Markets cards v2 (2026-11-10) */
+.mkg{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 12px;margin:12px 0}
+.mkc .muted{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+.mkc b{font-size:15px}
+.mks{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:3px;flex-wrap:wrap}
+.mkbar{width:42px;height:5px;border-radius:3px;background:var(--panel2);overflow:hidden;flex:none}
+.mkbar i{display:block;height:100%;border-radius:3px}
+.mkads{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--text2);padding:8px 10px;margin-bottom:10px;border:1px solid var(--line);border-radius:9px;background:var(--panel2)}
+.mkads span+span:before{content:'·';margin-right:12px;color:var(--muted)}
