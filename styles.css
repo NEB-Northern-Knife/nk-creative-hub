@@ -569,3 +569,14 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 .hsheet tr.wend td{border-bottom:2px solid var(--line2)}
 .hsheet tbody tr:hover td{background:#ffffff08}
 .hsheet tbody tr:hover td.l{background:#202126}
+
+/* metric explainer buttons + drawer (2026-11-10) */
+.ch-r{display:flex;align-items:flex-start;gap:12px}
+.info-i{flex:none;width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);background:var(--panel2);color:var(--muted);font:600 12px/20px Georgia,serif;font-style:italic;cursor:pointer;padding:0}
+.info-i:hover{color:var(--gold);border-color:var(--gold2)}
+.chart-top .info-i{margin-left:10px}
+.info-dr h2{margin:6px 0 4px;font-size:22px}
+.info-dr h4{margin:18px 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold)}
+.info-dr p,.info-dr li{font-size:14px;line-height:1.6;color:var(--text2)}
+.info-dr ul{margin:0;padding-left:18px}
+.info-dr .ours{background:#c7b48b14;border:1px solid #c7b48b33;border-radius:10px;padding:10px 12px;color:var(--text)}
