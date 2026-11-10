@@ -287,7 +287,8 @@ const ICONS = {
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
 ICONS.health = '<path d="M3 12h4l2-5 4 10 2-5h6"/>';
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['markets','Markets'],['health','Business health'],
+ICONS.copy = '<path d="M4 5h16M4 10h16M4 15h10"/><path d="M15 19l2 2 4-4"/>';
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['copy','Copy bank'],['markets','Markets'],['health','Business health'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -441,7 +442,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, markets:pMarkets, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, copy:pCopy, markets:pMarkets, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireFresh();
@@ -1470,6 +1471,88 @@ function pGuide() {
   <h3>Videos</h3><p>Hover a video card to preview it, click to watch with sound, every hook and every country. <b>Hook</b> = 3-second views ÷ impressions. <b>Hold</b> = ThruPlays ÷ 3-second views. <b>Link CTR</b> = outbound clicks ÷ impressions. All follow the selected dates.</p>
   <h3>Where the numbers come from</h3><p>All of it is pulled every day from Triple Whale: revenue, spend, profit and orders from the Summary page, ad-level spend and revenue from pixel attribution (lifetime window) on Meta. USD by default with Triple Whale's own rates; Net profit adds back Australia's custom expenses.</p>
   <h3>How you get credit on the leaderboard</h3><p>The hub reads the <b>ad name</b>: videos credit the editor and strategist in the name, statics the designer and strategist. If your name is missing, the ad does not count for you.</p></div>`;
+}
+
+/* ---------------- copy bank (Andy, 2026-11-10) ----------------
+   Ready-made ad copy for designers. Data = D.copybank (base layer, every role), built by pipeline/copybank.py
+   from the copy canvases + copy messages of Slack #design; lines marked new were written in the same style. */
+const CB = {q:'', prod:'', angle:'', offer:'', fmt:'', camp:'', avatar:'', onlyNew:false, hideFlag:false};
+const CB_FMT = ['Headline','Subhead','Campaign name','Tagline / badge','USP','Compared at','If this is him','POV','ChatGPT prompt','Testimonial headline','Testimonial quote','Note ad','iMessage ad','Late notice'];
+const CB_BLOCK = new Set(['Note ad','iMessage ad','Late notice']);
+const CB_PROD = ['LOKI','ODIN','VALHALLA','BJORN','Feather','RAGNAR','Ragnarok Rising','Dragon Cleaver'];
+const CB_CAMP = ['Evergreen','Black Friday','Holiday / Christmas','Winter','Father\'s Day','Memorial Day','Summer','Prime Day','Labor Day','Anniversary','Halloween'];
+function cbFiltered() {
+  const q = CB.q.trim().toLowerCase();
+  return D.copybank.lines.filter(L =>
+    (!CB.prod || L.prod.includes(CB.prod) || L.prod.includes('All')) && (!CB.angle || L.angle === CB.angle) &&
+    (!CB.offer || L.offer === CB.offer) && (!CB.fmt || L.fmt === CB.fmt) && (!CB.camp || L.camp === CB.camp) &&
+    (!CB.avatar || L.avatar === CB.avatar) && (!CB.onlyNew || L.src === 'new') && (!CB.hideFlag || !(L.flags && L.flags.length)) &&
+    (!q || (L.t + ' ' + (L.title || '') + ' ' + L.angle + ' ' + L.camp + ' ' + L.prod.join(' ')).toLowerCase().includes(q)));
+}
+function cbSel(key, label, opts) {
+  return `<label class="cb-f"><span>${label}</span><select data-cb="${key}"><option value="">All</option>${opts.map(o => `<option ${CB[key] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+}
+function pCopy() {
+  const C = D.copybank;
+  if (!C) return `<div class="page-head"><div><div class="kicker">For designers</div><h1>Copy bank</h1></div></div><p class="muted">The copy bank is not in this data build yet.</p>`;
+  const uniq = k => [...new Set(C.lines.map(L => L[k]))];
+  const order = (arr, ref) => arr.sort((a, b) => (ref.indexOf(a) + 1 || 99) - (ref.indexOf(b) + 1 || 99) || a.localeCompare(b));
+  const nNew = C.lines.filter(L => L.src === 'new').length;
+  const srcs = Object.entries(C.sources).filter(([k]) => k !== 'new');
+  afterRender.push(wireCopy);
+  return `<div class="page-head"><div><div class="kicker">For designers · ready to paste on a static</div><h1>Copy bank</h1></div>
+    <div class="meta">${C.lines.length - nNew} lines from our Slack canvases · <span class="pill gold">NEW</span> ${nNew} written in the same style</div></div>
+  <div class="cb-offer"><span class="pill green">Live offer</span><b>${esc(C.live_offer)}</b></div>
+  <details class="cb-rules"><summary>Rules before you design (from the #design canvases)</summary><ul>${C.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+    <h4>The five avatars</h4><ul>${Object.entries(C.avatars).map(([a, t]) => `<li><b>${a}</b> · ${esc(t)}</li>`).join('')}</ul></details>
+  <div class="cb-bar">
+    <input type="search" id="cbQ" placeholder="Search a word: gift, brisket, Damascus, socks..." value="${esc(CB.q)}">
+    ${cbSel('prod', 'Product', CB_PROD)}${cbSel('angle', 'Angle', uniq('angle').sort())}${cbSel('offer', 'Offer', order(uniq('offer'), ['No offer','Buy 2 Get 2','% off','Sale (any offer)','Buy 2 Get 1 (old)']))}
+    ${cbSel('fmt', 'Format', order(uniq('fmt'), CB_FMT))}${cbSel('camp', 'Campaign', order(uniq('camp'), CB_CAMP))}${cbSel('avatar', 'Avatar', ['MIKE','STEVE','JOHN','DON','COLE'])}
+    <div class="cb-tg"><label><input type="checkbox" id="cbNew" ${CB.onlyNew ? 'checked' : ''}> New lines only</label><label><input type="checkbox" id="cbFlag" ${CB.hideFlag ? 'checked' : ''}> Hide lines to fix</label>
+    <button class="btn ghost sm" id="cbClear">Clear filters</button></div>
+  </div>
+  <div id="cbList"></div>
+  <div class="cb-src muted">Source: Slack #design, ${srcs.map(([, v]) => `${esc(v.title)} (${v.date})`).join(' · ')}. Lines marked <span class="pill gold">NEW</span> were written on ${esc(C.sources.new.date)} in the same style, no spec jargon, no em dashes.</div>
+  <div id="cbToast" class="cb-toast">Copied</div>`;
+}
+function drawCopy() {
+  const el = $('#cbList'); if (!el) return;
+  const rows = cbFiltered();
+  const pill = L => [
+    L.src === 'new' ? '<span class="pill gold">NEW</span>' : '',
+    `<span class="pill">${esc(L.camp)}</span>`, `<span class="pill">${esc(L.angle)}</span>`,
+    L.prod.includes('All') ? '' : `<span class="pill blue">${esc(L.prod.join(' / '))}</span>`,
+    L.avatar && L.avatar !== 'All' ? `<span class="pill">${esc(L.avatar)}</span>` : '',
+    L.offer && L.offer !== 'No offer' ? `<span class="pill ${L.offer.includes('old') ? 'red' : 'green'}">${esc(L.offer)}</span>` : '',
+    ...(L.flags || []).map(f => `<span class="pill red">⚠ ${esc(f)}</span>`),
+    L.note ? `<span class="cb-note">${esc(L.note)}</span>` : ''].join('');
+  const groups = CB_FMT.concat([...new Set(rows.map(L => L.fmt))].filter(f => !CB_FMT.includes(f))).map(f => [f, rows.filter(L => L.fmt === f)]).filter(g => g[1].length);
+  el.innerHTML = `<div class="cb-count">${rows.length} line${rows.length === 1 ? '' : 's'}${rows.length ? ' · click a line to copy it' : ' match these filters'}</div>` +
+    groups.map(([f, ls]) => `<section class="cb-group"><h3>${esc(f)} <span class="muted">${ls.length}</span></h3>` +
+      (CB_BLOCK.has(f)
+        ? `<div class="cb-cards">${ls.map(L => `<div class="cb-card ${L.flags && L.flags.length ? 'flag' : ''}" data-cbc="${L.id}"><div class="cb-ct">${esc(L.title || f)}</div><div class="cb-txt pre">${esc(L.t)}</div><div class="cb-meta">${pill(L)}</div><button class="btn sm cb-btn">Copy</button></div>`).join('')}</div>`
+        : `<div class="cb-rows">${ls.map(L => `<div class="cb-row ${L.flags && L.flags.length ? 'flag' : ''}" data-cbc="${L.id}" title="Click to copy"><div class="cb-txt">${esc(L.t)}</div><div class="cb-meta">${pill(L)}</div><button class="btn ghost sm cb-btn">Copy</button></div>`).join('')}</div>`) + `</section>`).join('');
+}
+function cbCopy(text, node) {
+  const done = () => { const t = $('#cbToast'); if (t) { t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1200); }
+    if (node) { node.classList.add('copied'); const b = node.querySelector('.cb-btn'); if (b) { b.textContent = 'Copied ✓'; setTimeout(() => { b.textContent = 'Copy'; node.classList.remove('copied'); }, 1400); } } };
+  const fallback = () => { const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} ta.remove(); done(); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
+}
+function wireCopy() {
+  const q = $('#cbQ'); if (!q) return;
+  q.oninput = () => { CB.q = q.value; drawCopy(); };
+  document.querySelectorAll('[data-cb]').forEach(s => s.onchange = () => { CB[s.dataset.cb] = s.value; drawCopy(); });
+  $('#cbNew').onchange = e => { CB.onlyNew = e.target.checked; drawCopy(); };
+  $('#cbFlag').onchange = e => { CB.hideFlag = e.target.checked; drawCopy(); };
+  $('#cbClear').onclick = () => { Object.assign(CB, {q:'', prod:'', angle:'', offer:'', fmt:'', camp:'', avatar:'', onlyNew:false, hideFlag:false}); render(); };
+  $('#cbList').onclick = e => {
+    const n = e.target.closest('[data-cbc]'); if (!n) return;
+    if (window.getSelection && String(window.getSelection()).length > 2 && !e.target.closest('.cb-btn')) return; // let people select part of a line
+    const L = D.copybank.lines[+n.dataset.cbc]; if (L) cbCopy(L.t, n);
+  };
+  drawCopy();
 }
 
 /* ---------------- drawer ---------------- */
