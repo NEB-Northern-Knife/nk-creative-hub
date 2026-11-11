@@ -741,6 +741,10 @@ function bonusOf(c, mi) { // per creative for month index mi: earned (new), earn
   const r = c.m[mi], earned = bestN - pn, oldE = Math.min(earned, Math.max(0, bestO - po));
   return {r, earned, oldE, extra:earned - oldE, ent:bestN, entOld:bestO};
 }
+// Andy 2026-11-11: "we paid all the bonuses already", catch-up included. Bonuses go out at the start of each month for the
+// month before, so everything a creative was entitled to at the end of last month counts as paid (or the ledger, if higher).
+const bnPaidIdx = () => { const ms = HL.bonus.months, cur = D.today.slice(0, 7); let i = ms.indexOf(cur); if (i < 0) i = ms.length; return i - 1; };
+const paidOf = c => { const i = bnPaidIdx(); return Math.max(c.paid || 0, i >= 0 ? bonusOf(c, i).ent : 0); };
 function bonusWhy(c, mi) {
   const r = c.m[mi], p = mi ? c.m[mi - 1] : null, B = HL.bonus, out = [];
   if (r[4] && (!p || p[4] !== r[4])) { const t = B.tiers.find(x => x[0] === r[4]); out.push(`reached ${r[4]} ($${Math.round(t[1] / 1000)}k spend)${p && p[4] ? ' from ' + p[4] : ''}`); }
@@ -814,10 +818,10 @@ function pReports() {
   const monL = m => P(m + '-01').toLocaleDateString('en-GB', {month:'long', year:'numeric', timeZone:'UTC'});
   const edB = n => { const cs = (BB && BB.editors[n]) || []; const rows = cs.map(c => ({c, ...bonusOf(c, bmi)}));
     return {cs, rows, earned:rows.reduce((x, r) => x + r.earned, 0), oldE:rows.reduce((x, r) => x + r.oldE, 0), extra:rows.reduce((x, r) => x + r.extra, 0),
-      paid:cs.reduce((x, c) => x + (c.paid || 0), 0), entNow:cs.reduce((x, c) => x + bonusOf(c, bms.length - 1).ent, 0)}; };
+      left:cs.reduce((x, c) => x + Math.max(0, bonusOf(c, bms.length - 1).ent - paidOf(c)), 0), paid:cs.reduce((x, c) => x + paidOf(c), 0), entNow:cs.reduce((x, c) => x + bonusOf(c, bms.length - 1).ent, 0)}; };
   if (BB) {
     const all2 = Object.keys(BB.editors).map(n => ({n, ...edB(n)})).filter(x => x.earned || x.paid || x.entNow).sort((x, y) => y.earned - x.earned || y.entNow - x.entNow);
-    const T2 = all2.reduce((x, y) => ({earned:x.earned + y.earned, oldE:x.oldE + y.oldE, extra:x.extra + y.extra, paid:x.paid + y.paid, ent:x.ent + y.entNow}), {earned:0, oldE:0, extra:0, paid:0, ent:0});
+    const T2 = all2.reduce((x, y) => ({earned:x.earned + y.earned, oldE:x.oldE + y.oldE, extra:x.extra + y.extra, paid:x.paid + y.paid, left:x.left + y.left, ent:x.ent + y.entNow}), {earned:0, oldE:0, extra:0, paid:0, left:0, ent:0});
     const live = bms.indexOf(BN.m) === bms.length - 1;
     h += `<div class="card bn-top"><div class="bn-th"><div><div class="kicker" style="color:var(--gold)">Owner only · editor bonus</div><h2 class="vk" style="margin:2px 0 0">Monthly bonus</h2>
         <div class="muted" style="font-size:12px">ROAS 1.9 in First Click or Triple Attribution · lifetime, US + UK + AU · paid at the start of each month for the month before</div></div>
@@ -825,11 +829,11 @@ function pReports() {
       <div class="bn-k"><div><span>Earned in ${monL(BN.m)}</span><b class="g-money">${money(T2.earned)}</b><em>${live ? 'month still running, ' : ''}paid early ${monL(nextM(BN.m))}</em></div>
         <div><span>Under the old rules</span><b>${money(T2.oldE)}</b><em>ROAS 2.0 First Click, grid to $75k</em></div>
         <div><span>Extra from the new rules</span><b class="gold">${money(T2.extra)}</b><em>1.9 ROAS, Triple Attribution, $125k and $200k tiers</em></div>
-        <div><span>Paid so far, all months</span><b>${money(T2.paid)}</b><em>from the bonus tracker ledger</em></div>
-        <div><span>Entitled to date, new rules</span><b>${money(T2.ent)}</b><em>${T2.ent > T2.paid ? money(T2.ent - T2.paid) + ' not paid yet' : 'nothing left to pay'}</em></div></div>
+        <div><span>Paid so far</span><b>${money(T2.paid)}</b><em>everything to the end of ${monL(bms[bnPaidIdx()] || bms[0])}, catch-up included</em></div>
+        <div><span>Entitled to date, new rules</span><b>${money(T2.ent)}</b><em>${T2.left > 0 ? money(T2.left) + ' to pay early ' + monL(nextM(bms[bms.length - 1])) : 'nothing left to pay'}</em></div></div>
       <div class="tbl-wrap"><table><thead><tr><th class="l">Editor</th><th>Earned in ${MON(BN.m)}</th><th>Old rules</th><th>New rules extra</th><th>Paid so far</th><th>Entitled to date</th><th>Left to pay</th></tr></thead><tbody>
-      ${all2.map(x => `<tr><td class="l"><b>${esc(x.n)}</b></td><td class="num"><b>${x.earned ? money(x.earned) : '–'}</b></td><td class="num">${x.oldE ? money(x.oldE) : '–'}</td><td class="num gold">${x.extra ? money(x.extra) : '–'}</td><td class="num">${x.paid ? money(x.paid) : '–'}</td><td class="num">${money(x.entNow)}</td><td class="num ${x.entNow - x.paid > 0 ? 'up' : ''}">${x.entNow - x.paid > 0 ? money(x.entNow - x.paid) : '–'}</td></tr>`).join('')}</tbody></table></div>
-      <div class="note">"Left to pay" = entitled under the new rules minus what the ledger shows as paid; it includes ads that only qualify with the new rules, so it is the catch-up if the new rules apply to past months too. Ads paid before that no longer qualify keep what they were paid (never clawed back). US ad account act_1771 (lost by Triple Whale, Jan to 6 Aug) counts with its frozen First Click numbers.</div></div>`;
+      ${all2.map(x => `<tr><td class="l"><b>${esc(x.n)}</b></td><td class="num"><b>${x.earned ? money(x.earned) : '–'}</b></td><td class="num">${x.oldE ? money(x.oldE) : '–'}</td><td class="num gold">${x.extra ? money(x.extra) : '–'}</td><td class="num">${x.paid ? money(x.paid) : '–'}</td><td class="num">${money(x.entNow)}</td><td class="num ${x.left > 0 ? 'up' : ''}">${x.left > 0 ? money(x.left) : '–'}</td></tr>`).join('')}</tbody></table></div>
+      <div class="note">All bonuses up to the end of ${monL(bms[bnPaidIdx()] || bms[0])} are paid, catch-up from the new rules included. "Left to pay" is what the running month has earned so far, paid at the start of next month. Ads paid before that no longer qualify keep what they were paid (never clawed back). US ad account act_1771 (lost by Triple Whale, Jan to 6 Aug) counts with its frozen First Click numbers.</div></div>`;
   }
   h += '<div class="rs-grid">' + eds.map((e, idx) => {
     const tested = e.cs.filter(c => c.usd >= mk).length >= 2 ? e.cs.filter(c => c.usd >= mk) : e.cs.filter(c => c.sp > 0);
@@ -860,13 +864,13 @@ function pReports() {
           ${e.mix.total ? `<div class="ratio"><div class="rb">${CATS.map(([n, col]) => `<i style="width:${(share(e.mix, n) * 100).toFixed(1)}%;background:${col}"></i>`).join('')}</div><div class="rl">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n} <b>${pct(share(e.mix, n), 0)}</b> (${e.mix[n]})</span>`).join('')}</div></div>` : '<div class="muted" style="font-size:12px">None delivered in these dates</div>'}</div>
         <div><div class="rs-h">By product <small>in these dates</small></div>${pl.length ? '<div class="rs-p rs-ph"><span></span><em>edited</em><em>ads live</em><span></span><em>spend</em><em>ROAS</em></div>' + pl.map(([p, o]) => `<div class="rs-p"><span title="${esc(p)}">${esc(p)}</span><b>${o.ed}</b><b>${o.n}</b><div class="bar"><i style="width:${(o.sp / pmax * 100).toFixed(0)}%"></i></div><b>${o.sp ? money(o.sp) : '–'}</b><b class="${o.sp ? rc(o.rev / o.sp) : ''}">${o.sp ? x2(o.rev / o.sp) : '–'}</b></div>`).join('') : '<div class="muted" style="font-size:12px">Nothing edited or live in these dates</div>'}</div>
       </div>
-      ${BB ? (() => { const x = edB(e.n), ev = x.rows.filter(r => r.earned > 0), q = x.cs.map(c => ({c, ...bonusOf(c, bms.length - 1)})).filter(r => r.ent || r.c.paid);
+      ${BB ? (() => { const x = edB(e.n), ev = x.rows.filter(r => r.earned > 0), q = x.cs.map(c => ({c, ...bonusOf(c, bms.length - 1)})).filter(r => r.ent || paidOf(r.c));
         return `<div class="bn-card"><div class="bn-ch"><span class="vk">Bonus · ${monL(BN.m)}</span><b class="g-money">${money(x.earned)}</b><em>paid early ${monL(nextM(BN.m))}${x.extra ? ` · ${x.oldE ? money(x.oldE) + ' old rules + ' : ''}<span class="gold">${money(x.extra)} from the new rules</span>` : ''}</em></div>
           ${ev.length ? ev.map(r => `<div class="bn-ev"><b>${esc(r.c.cid)}</b> <span class="muted">${esc(r.c.title)}</span><span class="bn-w">${esc(bonusWhy(r.c, bmi))}</span><span class="bn-a">+${money(r.earned)}${r.extra ? `<i class="gold"> (${r.oldE ? money(r.oldE) + ' old + ' : ''}${money(r.extra)} new rules)</i>` : ''}</span></div>`).join('') : `<div class="muted" style="font-size:12px">No creative reached a new tier in ${monL(BN.m)}.</div>`}
-          <div class="bn-led">Paid so far <b>${money(x.paid)}</b> · entitled to date <b>${money(x.entNow)}</b>${x.entNow - x.paid > 0 ? ` · <span class="up">${money(x.entNow - x.paid)} left to pay</span>` : ''}</div>
+          <div class="bn-led">Paid so far <b>${money(x.paid)}</b> · entitled to date <b>${money(x.entNow)}</b>${x.left > 0 ? ` · <span class="up">${money(x.left)} left to pay</span>` : ''}</div>
           ${q.length ? `<details class="bn-all"${BN.open[e.n] ? ' open' : ''} data-bn="${esc(e.n)}"><summary>Every bonus creative (${q.length})</summary><div class="tbl-wrap"><table><thead><tr><th class="l">Creative</th><th>Spend</th><th>First Click</th><th>Triple Attr.</th><th>Tier now</th><th>Entitled</th><th>Paid</th><th>Left</th></tr></thead><tbody>
             ${q.sort((p1, p2) => p2.r[1] - p1.r[1]).map(r => `<tr><td class="l"><b>${esc(r.c.cid)}</b> <span class="muted">${esc(r.c.title)}</span>${r.ent > r.entOld ? ' <span class="pill gold" title="qualifies or pays more only with the new rules">new rules</span>' : ''}</td><td class="num">${money(r.r[1])}</td>
-              <td class="num ${r.r[2] >= BB.roasMin ? 'up' : 'down'}">${r.r[2].toFixed(2)}</td><td class="num ${r.r[3] >= BB.roasMin ? 'up' : 'down'}">${r.r[3].toFixed(2)}</td><td class="num">${r.r[4] || '–'}</td><td class="num">${r.ent ? money(r.ent) : '–'}</td><td class="num">${r.c.paid ? money(r.c.paid) : '–'}</td><td class="num ${r.ent - r.c.paid > 0 ? 'up' : ''}">${r.ent - r.c.paid > 0 ? money(r.ent - r.c.paid) : '–'}</td></tr>`).join('')}</tbody></table></div></details>` : ''}</div>`; })() : ''}
+              <td class="num ${r.r[2] >= BB.roasMin ? 'up' : 'down'}">${r.r[2].toFixed(2)}</td><td class="num ${r.r[3] >= BB.roasMin ? 'up' : 'down'}">${r.r[3].toFixed(2)}</td><td class="num">${r.r[4] || '–'}</td><td class="num">${r.ent ? money(r.ent) : '–'}</td><td class="num">${paidOf(r.c) ? money(paidOf(r.c)) : '–'}</td><td class="num ${r.ent - paidOf(r.c) > 0 ? 'up' : ''}">${r.ent - paidOf(r.c) > 0 ? money(r.ent - paidOf(r.c)) : '–'}</td></tr>`).join('')}</tbody></table></div></details>` : ''}</div>`; })() : ''}
       <div class="rs-row">
         <div><div class="rs-h">Best ads <small>highest ${MODELS[S.model]} ROAS</small></div>${best.map(mini).join('') || '<div class="muted" style="font-size:12px">No ads with spend</div>'}</div>
         <div><div class="rs-h">Worst ads <small>lowest ROAS</small></div>${worst.map(mini).join('') || '<div class="muted" style="font-size:12px">Not enough ads to compare</div>'}</div>
