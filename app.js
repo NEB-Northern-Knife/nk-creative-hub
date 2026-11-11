@@ -729,7 +729,8 @@ function pReports() {
   const prodOf = v => { for (const t of (v.name || '').split(/_| - /)) { const k = PK[t.trim().toUpperCase()]; if (k) return k; } return 'Other'; };
   const inprod = PR ? PR.in_production || [] : [];
   const inRangeVids = PR ? PR.videos.filter(v => v.d >= a && v.d <= b) : []; // exact dates sent, so Week/Month/Year presets count exactly
-  const names = new Set([...all.map(c => c.editor), ...vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor)]);
+  const names = new Set([...all.map(c => c.editor), ...vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor), ...inprod.filter(r => r.editor && r.editor !== 'Unassigned').map(r => r.editor)]);
+  const prodN = (n, mk) => inprod.filter(r => r.editor === n && (!mk || (r.mk || 'EN') === mk)).reduce((x, r) => x + r.n, 0);
   const team = {agg:agg(all), hit:hitsOf(all), win:winOf(eligible), perWeek:0, spc:0};
   const activeEds = new Set(vids.filter(v => v.d >= wk0 && v.editor).map(v => v.editor)).size || 1;
   team.perWeek = vids.filter(v => v.d >= wk0 && v.editor).length / weeks.length / activeEds;
@@ -737,14 +738,17 @@ function pReports() {
   team.bk = bks.map(x => { const l = edVids.filter(x.f); return l.length ? l.length / new Set(l.map(v => v.editor)).size : 0; });
   const rv = inRangeVids.filter(v => v.editor); team.inRange = rv.length ? rv.length / new Set(rv.map(v => v.editor)).size : 0;
   team.spc = all.length ? team.agg.sp / all.length : 0;
+  const busy = new Set(inprod.filter(r => r.editor && r.editor !== 'Unassigned').map(r => r.editor));
+  team.prod = inprod.reduce((x, r) => x + r.n, 0); team.prodDE = inprod.filter(r => r.mk === 'DE').reduce((x, r) => x + r.n, 0);
+  team.prodPer = busy.size ? inprod.filter(r => busy.has(r.editor)).reduce((x, r) => x + r.n, 0) / busy.size : 0;
   const eds = [...names].map(n => {
     const cs = all.filter(c => c.editor === n), my = vids.filter(v => v.editor === n);
     return {n, cs, a:agg(cs), hit:hitsOf(cs), win:winOf(eligible.filter(c => c.editor === n)),
       wk:weeks.map(w => my.filter(v => v.d >= w && v.d <= addD(w, 6)).length), bk:bks.map(x => my.filter(x.f).length),
       mine:inRangeVids.filter(v => v.editor === n), mix:cnt(inRangeVids.filter(v => v.editor === n)),
-      year:my.filter(v => v.d >= MIN_DAY).length, prod:inprod.filter(r => r.editor === n).reduce((x, r) => x + r.n, 0),
+      year:my.filter(v => v.d >= MIN_DAY).length, prod:prodN(n), prodEN:prodN(n, 'EN'), prodDE:prodN(n, 'DE'),
       launches:cs.filter(c => isNew(c, a, b)).length};
-  }).filter(e => e.cs.length || e.wk.some(x => x)).sort((x, y) => y.a.sp - x.a.sp || y.year - x.year);
+  }).filter(e => e.cs.length || e.wk.some(x => x) || e.prod).sort((x, y) => y.a.sp - x.a.sp || y.year - x.year);
   const chip = (v, t, kind) => { if (v == null || t == null || !isFinite(v) || !isFinite(t) || !t) return '<span class="cmpc">no team figure</span>';
     if (kind === 'pt') { const dp = (v - t) * 100; return `<span class="cmpc ${Math.abs(dp) < 1 ? '' : dp > 0 ? 'good' : 'bad'}">${dp >= 0 ? '▲ +' : '▼ '}${dp.toFixed(0)} pts vs team</span>`; }
     const d = v / t - 1, up = d >= 0, good = kind === 'inv' ? !up : up;
@@ -752,10 +756,10 @@ function pReports() {
   const rate = o => o.n !== undefined ? (o.n ? o.w / o.n : null) : (o.tested ? o.hits / o.tested : null);
   const stat = (lbl, val, ch, sub = '') => `<div class="rs-s"><span>${lbl}</span><b>${val}</b>${ch}${sub ? `<em>${sub}</em>` : ''}</div>`;
   const mini = c => `<div class="rs-ad" data-c="${esc(c.key)}"><div class="t" style="background-image:url('${esc(c.thumb || '')}')"></div><div><div class="i">${esc(c.id || '')}${c.product ? ' · ' + esc(c.product) : ''}</div><div class="n">${esc(c.title)}</div><div class="m"><b class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</b> · ${money(c.sp)}</div></div></div>`;
-  h += `<div class="note" style="margin:-8px 0 16px">Performance uses the selected dates and market (${MODELS[S.model]}). Hit = a concept with $1k+ spend beating the editors' average ROAS (${x2(teamBm)}). Win rate = share of 2026 concepts (launched 14+ days ago) that reached $10k spend. Videos delivered come from the CREATIVES sheet, in production from Notion. For win and hit rates, Last 30 days or This year reads best.</div>`;
+  h += `<div class="note" style="margin:-8px 0 16px">Performance uses the selected dates and market (${MODELS[S.model]}). Hit = a concept with $1k+ spend beating the editors' average ROAS (${x2(teamBm)}). Win rate = share of 2026 concepts (launched 14+ days ago) that reached $10k spend. Videos delivered come from the CREATIVES sheet; editing now = Notion Evergreen Video + German Creatives 🇩🇪 board. For win and hit rates, Last 30 days or This year reads best.</div>`;
   h += `<div class="chart-top" style="margin:0 0 12px"><span class="muted" style="font-size:12px">Videos edited, counted per</span><div class="tabs-mini" id="rsg">${[['week','Week'],['month','Month'],['year','Year']].map(([v, l]) => `<button data-v="${v}" class="${rg === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
   h += `<div class="rs-team card"><div><span>Videos edited / editor</span><b>${team.inRange.toFixed(1)}</b><em class="muted" style="font-size:11px">in these dates</em></div>`; h += `<div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
-    <div><span>Hook · Hold</span><b>${pct(team.agg.hook, 0)} · ${pct(team.agg.hold, 0)}</b></div><div><span>Spend per concept</span><b>${money(team.spc)}</b></div><div><span>Videos / editor / week</span><b>${team.perWeek.toFixed(1)}</b></div></div>`;
+    <div><span>Hook · Hold</span><b>${pct(team.agg.hook, 0)} · ${pct(team.agg.hold, 0)}</b></div><div><span>Spend per concept</span><b>${money(team.spc)}</b></div><div><span>Videos / editor / week</span><b>${team.perWeek.toFixed(1)}</b></div><div><span>Editing now</span><b>${team.prod}</b><em class="muted" style="font-size:11px">${team.prod - team.prodDE} EN · ${team.prodDE} 🇩🇪 · ${team.prodPer.toFixed(1)} / editor</em></div></div>`;
   h += '<div class="rs-grid">' + eds.map((e, idx) => {
     const tested = e.cs.filter(c => c.usd >= mk).length >= 2 ? e.cs.filter(c => c.usd >= mk) : e.cs.filter(c => c.sp > 0);
     const byR = tested.slice().sort((x, y) => y.r[S.model] - x.r[S.model]);
@@ -767,15 +771,15 @@ function pReports() {
     const perWeek = e.wk.reduce((x, y) => x + y, 0) / weeks.length;
     return `<div class="card rs-card">
       <div class="rs-head"><div class="portrait sm"><span>${esc(initials(e.n))}</span></div><div style="min-width:0"><div class="rs-name">${esc(e.n)}</div>
-        <div class="muted" style="font-size:12px">${e.cs.length} concepts live · ${e.launches} new · ${e.year} videos delivered in 2026 · ${e.prod} in production now</div></div>
+        <div class="muted" style="font-size:12px">${e.cs.length} concepts live · ${e.launches} new · ${e.year} videos delivered in 2026 · <b style="color:var(--text)">${e.prod} editing now</b>${e.prodDE ? ` (${e.prodEN} EN + ${e.prodDE} 🇩🇪)` : ''}</div></div>
         <div class="rs-rank">#${idx + 1}<span>by spend</span></div></div>
       <div class="rs-stats">
+        ${stat('Editing now', e.prod, chip(e.prod, team.prodPer), `${e.prodEN} English · ${e.prodDE} German 🇩🇪`)}
         ${stat('Spend', money(e.a.sp), chip(e.cs.length ? e.a.sp / e.cs.length : null, team.spc), 'per concept: ' + money(e.cs.length ? e.a.sp / e.cs.length : 0))}
         ${stat(MODELS[S.model] + ' ROAS', `<span class="${rc(e.a.roas)}">${x2(e.a.roas)}</span>`, chip(e.a.roas, teamBm), money(e.a.rev) + ' revenue')}
         ${stat('Hit rate', pct(rate(e.hit), 0), chip(rate(e.hit), rate(team.hit), 'pt'), `${e.hit.hits} of ${e.hit.tested} with $1k+ spend`)}
         ${stat('Win rate 2026', pct(rate(e.win), 0), chip(rate(e.win), rate(team.win), 'pt'), `${e.win.w} of ${e.win.n} reached $10k`)}
-        ${stat('Hook rate', pct(e.a.hook, 0), chip(e.a.hook, team.agg.hook, 'pt'))}
-        ${stat('Hold rate', pct(e.a.hold, 0), chip(e.a.hold, team.agg.hold, 'pt'))}
+        ${stat('Hook · Hold', pct(e.a.hook, 0) + ' · ' + pct(e.a.hold, 0), chip(e.a.hook, team.agg.hook, 'pt'), 'hold ' + (team.agg.hold ? ((e.a.hold - team.agg.hold) * 100 >= 0 ? '+' : '') + ((e.a.hold - team.agg.hold) * 100).toFixed(0) + ' pts vs team' : ''))}
         ${stat('Link CTR', pct(e.a.lctr), chip(e.a.lctr, team.agg.lctr))}
         ${stat('Videos edited', e.mix.total, chip(e.mix.total, team.inRange), `in these dates · ${perWeek.toFixed(1)}/week over 12 weeks`)}
       </div>
@@ -1261,6 +1265,9 @@ function pProduction() {
   const t = both(c, s), tNow = both(cNow, sNow), tp = both(cp, sp);
   const inprod = PR.in_production || [], inTot = inprod.reduce((x, r) => x + r.n, 0);
   const byStatus = st => inprod.filter(r => r.status === st).reduce((x, r) => x + r.n, 0);
+  const inDE = inprod.filter(r => r.mk === 'DE').reduce((x, r) => x + r.n, 0);
+  const perEd = {}; for (const r of inprod) { const o = perEd[r.editor || 'Unassigned'] || (perEd[r.editor || 'Unassigned'] = {n:0, de:0}); o.n += r.n; if (r.mk === 'DE') o.de += r.n; }
+  const edChips = Object.entries(perEd).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => `<span class="pill" style="margin:2px 4px 2px 0;display:inline-block" title="${o.n - o.de} English + ${o.de} German">${esc(n)} <b>${o.n}</b>${o.de ? ` <span class="muted">(${o.de} 🇩🇪)</span>` : ''}</span>`).join('');
   const label = g === 'month' ? monthsIn(a, b).map(MONL).join(' + ') : `${fmtD(a)} – ${fmtD(b)}`;
   const kp = (lbl, val, d, sub = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="delta">${d}</div>${sub ? `<div class="delta" style="margin-top:6px">${sub}</div>` : ''}</div>`;
   h += `<div class="note" style="margin:-8px 0 14px">Showing <b style="color:var(--text)">${g === 'month' ? 'months' : 'weeks'}</b>: ${esc(label)}. Pick a week preset for weekly numbers, a month preset for monthly numbers.</div>
@@ -1269,7 +1276,8 @@ function pProduction() {
     ${kp('Video mix', `${pct(share(c, 'Net New'), 0)} <span class="muted" style="font-size:16px">net new</span>`, mix(c), `<span class="muted">${c['Net New']} NN · ${c.Iteration} Ite · ${c.Adaptation} Adapt</span>`)}
     ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
     ${kp('Concepts tested', int(t.total), delta(tNow.total, tp.total), `<span class="muted">videos + statics · ${pct(share(t, 'Net New'), 0)} net new</span>`)}
-    ${kp('Videos in production', int(inTot), `<span class="muted">${byStatus('Assigned to Editor')} assigned to editor · ${byStatus('Ready for visuals')} ready for visuals</span>`, '<span class="muted">live count from Notion</span>')}
+    <div class="card kpi" style="grid-column:1/-1"><div class="lbl">Videos in production · editing now, per editor</div><div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><div class="val num">${int(inTot)}</div><span class="delta muted">${inTot - inDE} English · ${inDE} German 🇩🇪${byStatus('Ready for visuals') ? ' · ' + byStatus('Ready for visuals') + ' ready for visuals' : ''}</span></div>
+      <div style="margin-top:8px">${edChips}</div><div class="delta muted" style="margin-top:6px">live from Notion: Evergreen Video (Assigned to Editor) + German Creatives 🇩🇪 board (Edit not yet received)</div></div>
   </div>
   ${(() => { const tm = D.today.slice(0, 7), lm = addM(tm, -1), lm2 = addM(tm, -2);
     const vm = m => cnt(PR.videos.filter(v => v.m === m)), sm = m => cnt(((PR.statics || []).find(x => x.month === m) || {items:[]}).items);
@@ -1297,19 +1305,19 @@ function pProduction() {
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Statics</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.s, hooks:0}, bk.sel)).join('')}</tbody></table></div>
   </div>`;
   const eds = {}, vv = vidsIn(a, b, g);
-  const blank = () => ({n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0, total:0});
+  const blank = () => ({n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0, prodDE:0, total:0});
   for (const v of vv) { const o = eds[v.editor || 'Unknown'] || (eds[v.editor || 'Unknown'] = blank()); o.n++; o.total++; o.hooks += v.hooks || 0; if (o[v.cat] !== undefined) o[v.cat]++; }
-  for (const r of inprod) { const o = eds[r.editor || 'Unassigned'] || (eds[r.editor || 'Unassigned'] = blank()); o.prod += r.n; }
+  for (const r of inprod) { const o = eds[r.editor || 'Unassigned'] || (eds[r.editor || 'Unassigned'] = blank()); o.prod += r.n; if (r.mk === 'DE') o.prodDE += r.n; }
   const des = {};
   for (const it of staticsIn(a, b, g)) { const o = des[it.designer] || (des[it.designer] = blank()); o.n++; o.total++; o[it.cat]++; }
-  const pplRow = (n, o, prod) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td>${prod ? `<td>${o.prod}</td>` : ''}</tr>`;
+  const pplRow = (n, o, prod) => `<tr><td><span class="mini-av">${esc(initials(n))}</span>${esc(n)}</td><td><b>${o.n}</b></td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td>${prod ? `<td><b>${o.prod}</b>${o.prodDE ? ` <span class="muted">${o.prodDE} 🇩🇪</span>` : ''}</td>` : ''}</tr>`;
   h += `<div class="grid charts" style="margin-top:14px">
-    <div><h2 class="sec">By editor <small>${esc(label)} · in production = now</small></h2><div class="tbl-wrap"><table><thead><tr><th>Editor</th><th>Videos</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>In production</th></tr></thead><tbody>
+    <div><h2 class="sec">By editor <small>${esc(label)} · in production = now</small></h2><div class="tbl-wrap"><table><thead><tr><th>Editor</th><th>Videos</th><th>Net New</th><th>Iteration</th><th>Adaptation</th><th>Editing now</th></tr></thead><tbody>
       ${Object.entries(eds).sort((x, y) => y[1].n - x[1].n || y[1].prod - x[1].prod).map(([n, o]) => pplRow(n, o, true)).join('')}</tbody></table></div></div>
     <div><h2 class="sec">By designer <small>${esc(label)}</small></h2><div class="tbl-wrap"><table><thead><tr><th>Designer</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>
       ${Object.entries(des).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => pplRow(n, o, false)).join('') || '<tr><td colspan="5" class="muted">No statics in these dates</td></tr>'}</tbody></table></div></div>
   </div>
-  <div class="note">Videos: CREATIVES sheet. Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. In production: Notion Evergreen Video. Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
+  <div class="note">Videos: CREATIVES sheet. Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. Editing now: Notion Evergreen Video (Assigned to Editor, Ready for visuals) + German Creatives 🇩🇪 board (Edit not yet received). Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
   afterRender.push(() => {
     $('#pmode').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.pmode = bt.dataset.v; render(); } };
     const pc = (S.pmode || 'n') === 'p';
