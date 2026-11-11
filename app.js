@@ -36,16 +36,18 @@ async function login(pw) {
   const empty = n => Array.from({length:n}, () => ({}));
   bd.kpi = rv ? rv.kpi : empty(bd.days.length); bd.mkpi = rv ? rv.mkpi : empty((bd.months || []).length);
   bd.paid = rv ? rv.paid : empty(bd.days.length); bd.mpaid = rv ? rv.mpaid : empty((bd.months || []).length);
+  bd.pdays = rv && rv.pdays || []; bd.pkpi = rv && rv.pkpi || [];
   if (ow) {
     ow.kpi.forEach((day, i) => { for (const [st, q] of Object.entries(day)) if (bd.kpi[i] && bd.kpi[i][st]) bd.kpi[i][st] = bd.kpi[i][st].concat(q); });
     (ow.mkpi || []).forEach((mo, i) => { for (const [st, q] of Object.entries(mo)) if (bd.mkpi[i] && bd.mkpi[i][st]) bd.mkpi[i][st] = bd.mkpi[i][st].concat(q); });
+    (ow.pkpi || []).forEach((dy, i) => { for (const [st, q] of Object.entries(dy)) if (bd.pkpi[i] && bd.pkpi[i][st]) bd.pkpi[i][st] = bd.pkpi[i][st].concat(q); });
   }
   if (bd.v !== 2) throw new Error('old data format');
   D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
 const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','strategist','owner'], health:['owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
-const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev'};
+const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev', cmp:'prev', cfrom:null, cto:null};
 const charts = {};
 const memo = new Map();
 
@@ -56,7 +58,9 @@ const addD = (s, n) => { const d = P(s); d.setUTCDate(d.getUTCDate() + n); retur
 const monday = s => { const d = P(s); const wd = (d.getUTCDay() + 6) % 7; return addD(s, -wd); };
 const nDays = (a, b) => Math.round((P(b) - P(a)) / 864e5) + 1;
 const fmtD = s => P(s).toLocaleDateString('en-GB', {day:'numeric', month:'short', timeZone:'UTC'});
-const PRESETS = [['week','This week'],['lastweek','Last week'],['month','This month'],['lastmonth','Last month'],['7d','Last 7 days'],['30d','Last 30 days'],['year','This year']];
+const PRESETS = [['week','This week'],['lastweek','Last week'],['month','This month'],['lastmonth','Last month'],['7d','Last 7 days'],['30d','Last 30 days'],['quarter','This quarter'],['lastquarter','Last quarter'],['year','This year']];
+/* Markets: pick what to compare with (Andy 2026-11-11) */
+const CMPS = [['prev','Previous period'],['pw','Previous week'],['pm','Previous month'],['pq','Previous quarter'],['py','Previous year'],['pyw','Previous year, same weekday']];
 const MIN_DAY = '2026-01-01';
 function presetRange(p) {
   const t = D.today, first = MIN_DAY;
@@ -68,9 +72,20 @@ function presetRange(p) {
   if (p === '7d') return [clip(addD(t, -6)), t];
   if (p === '30d') return [clip(addD(t, -29)), t];
   if (p === 'year') return [t.slice(0, 4) + '-01-01', t];
+  if (p === 'quarter' || p === 'lastquarter') { const q0 = t.slice(0, 5) + String(Math.floor((+t.slice(5, 7) - 1) / 3) * 3 + 1).padStart(2, '0') + '-01';
+    if (p === 'quarter') return [clip(q0), t]; const d = P(q0); d.setUTCMonth(d.getUTCMonth() - 3); return [clip(iso(d)), addD(q0, -1)]; }
   return [S.from, S.to];
 }
 function compareRange(a, b) {
+  if (S.page === 'markets' && S.cmp && S.cmp !== 'prev') {
+    if (S.cmp === 'custom' && S.cfrom && S.cto) return [S.cfrom, S.cto];
+    const mshift = n => { const sh = d => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + n, dd = +d.slice(8, 10), last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return iso(new Date(Date.UTC(y, m, Math.min(dd, last)))); };
+      const endOfM = d => iso(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0))), full = a.slice(8) === '01' && b === endOfM(b);
+      return [sh(a), full ? endOfM(sh(b.slice(0, 8) + '01')) : sh(b)]; };
+    if (S.cmp === 'pw') return [addD(a, -7), addD(b, -7)];
+    if (S.cmp === 'pm') return mshift(-1); if (S.cmp === 'pq') return mshift(-3); if (S.cmp === 'py') return mshift(-12);
+    if (S.cmp === 'pyw') return [addD(a, -364), addD(b, -364)];
+  }
   const n = nDays(a, b);
   if (S.preset === 'week' || S.preset === 'lastweek') return [addD(a, -7), addD(b, -7)];
   if (S.preset === 'month' || S.preset === 'lastmonth') {
@@ -135,7 +150,13 @@ function kpis(a, b, mkt = S.market) {
       o.paidSp += q[0] * f; o.paidFc += q[1] * f; o.paidTa += q[2] * f; o.metaSp += q[3] * f; o.metaFc += q[4] * f; o.metaTa += q[5] * f; o.metaPl += q[6] * f;
     }
   }
+  // month blocks count only when the range covers the whole month; other days before the daily window come from pdays (exact days, no attribution)
+  const mEndOf = m => iso(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0))), fullM = new Set(monthIdx(a, b).filter(i => a <= D.months[i] + '-01' && b >= mEndOf(D.months[i])).map(i => D.months[i]));
+  if (a < D.days[0] && D.pdays && D.pdays.length) D.pdays.forEach((d, i) => { if (d < a || d > b || fullM.has(d.slice(0, 7))) return; for (const [st, q] of Object.entries(D.pkpi[i] || {})) {
+    if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+    o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.noAttr = true; } });
   for (const i of monthIdx(a, b)) {
+    if (D.pdays && D.pdays.length && !fullM.has(D.months[i])) continue;
     for (const [st, q] of Object.entries(D.mkpi[i] || {})) {
       if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
       o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.addBack += (q[6] || 0) * f;
@@ -294,7 +315,7 @@ const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top stat
 function buildShell() {
   $('#nav').innerHTML = PAGES.filter(([p]) => canSee(p)).map(([p, l]) => `<button class="nav-item" data-p="${p}"><svg viewBox="0 0 24 24">${ICONS[p]}</svg>${l}</button>` +
     (p === 'health' ? HTABS.map(([v, t]) => `<button class="nav-sub" data-p="health" data-ht="${v}">${t}</button>`).join('') : '')).join('');
-  $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; if (b.dataset.ht) S.ht = b.dataset.ht; $('#side').classList.remove('open'); render(); window.scrollTo(0, 0); } };
+  $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; if (b.dataset.ht) S.ht = b.dataset.ht; $('#side').classList.remove('open'); $('#drawer').classList.contains('open') || $('#scrim').classList.remove('open'); render(); window.scrollTo(0, 0); } };
   seg('#cMarket', ['ALL', ...D.stores.map(s => s.code)].map(c => [c, (FLAGS[c] || '') + ' ' + (c === 'ALL' ? 'All' : c)]), 'market', () => { if (S.market === 'ALL') S.cur = 'USD'; });
   seg('#cModel', Object.entries(MODELS), 'model');
   const mi = $('#cMin'); mi.value = S.min; $('#cMinV').textContent = '$' + S.min;
@@ -302,10 +323,11 @@ function buildShell() {
   $('#cTarget').value = S.target; $('#cTarget').onchange = e => { S.target = e.target.value; render(); };
   $('#genAt').textContent = 'Synced ' + new Date(D.generated).toLocaleString('en-GB', {dateStyle:'medium', timeStyle:'short'});
   $('#shareBtn').onclick = () => { navigator.clipboard && navigator.clipboard.writeText(location.href); $('#shareBtn').textContent = 'Copied ✓'; setTimeout(() => $('#shareBtn').textContent = 'Copy link to this view', 1500); };
-  $('#menuBtn').onclick = () => $('#side').classList.toggle('open');
+  $('#menuBtn').onclick = () => { const o = $('#side').classList.toggle('open'); $('#scrim').classList.toggle('open', o || $('#drawer').classList.contains('open')); };
   $('#roleTag').textContent = ROLE_NAME[ACCESS] + ' access';
   $('#logoutBtn').onclick = () => { LS('nkhub.pass', null); location.hash = ''; location.reload(); };
-  $('#scrim').onclick = closeDrawer;
+  /* tap outside (or Escape) closes the phone menu and any open panel (Andy 2026-11-11) */
+  $('#scrim').onclick = closeAll;
 }
 function seg(sel, opts, key, after) {
   const el = $(sel);
@@ -317,6 +339,7 @@ function syncControls() {
   for (const b of $('#nav').children) b.classList.toggle('active', b.dataset.ht ? S.page === 'health' && (S.ht || 'overview') === b.dataset.ht : b.dataset.p === S.page);
   const h = new URLSearchParams({p:S.page, r:S.preset, m:S.market, a:S.model, min:S.min, t:S.target});
   if (S.preset === 'custom') { h.set('from', S.from); h.set('to', S.to); }
+  if (S.cmp && S.cmp !== 'prev') { h.set('c', S.cmp); if (S.cmp === 'custom') { h.set('cf', S.cfrom); h.set('ct', S.cto); } }
   history.replaceState(null, '', '#' + h.toString());
 }
 function readHash() {
@@ -328,6 +351,7 @@ function readHash() {
   if (h.get('a') && MODELS[h.get('a')]) S.model = h.get('a');
   if (h.get('min')) S.min = +h.get('min');
   if (h.get('t')) S.target = h.get('t');
+  if (h.get('c')) { S.cmp = h.get('c'); S.cfrom = h.get('cf'); S.cto = h.get('ct'); }
 }
 function applyPreset() { if (S.preset !== 'custom') [S.from, S.to] = presetRange(S.preset); }
 function rangeBar() {
@@ -335,7 +359,8 @@ function rangeBar() {
   const early = S.page !== 'production' && partialMonths(S.from, S.to) ? ` · <span class="muted">before ${fmtD(D.days[0])} the hub counts whole months</span>` : '';
   return `<div class="rangebar"><div class="seg" id="rPre">${PRESETS.map(([v, l]) => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
-    <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · ${ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
+    ${S.page === 'markets' ? `<button class="dp-btn cmp-btn" id="cmpBtn"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>Compare with: <b>${S.cmp === 'custom' ? 'Custom dates' : (CMPS.find(x => x[0] === S.cmp) || CMPS[0])[1]}</b> · ${fmtD(ca)} – ${fmtD(cb)}${ca.slice(0, 4) !== S.from.slice(0, 4) ? ' ' + ca.slice(0, 4) : ''} ▾</button>` : ''}
+    <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · ${S.page === 'markets' ? (ca < '2025-01-01' ? 'the hub has no data that far back' : ca < MIN_DAY ? 'before 1 Jan 2026 the hub counts whole months' : '') : ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
 }
 const DP = {a:null, b:null, hover:null, view:null, cfg:null};
 const dpMin = () => (DP.cfg && DP.cfg.min) || MIN_DAY;
@@ -402,6 +427,8 @@ function wireRange() {
   const pre = $('#rPre'); if (!pre) return;
   pre.onclick = e => { const b = e.target.closest('button'); if (!b) return; S.preset = b.dataset.v; applyPreset(); render(); };
   $('#dpBtn').onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open') && DP.btn === e.currentTarget) dpClose(); else dpOpen(e.currentTarget); };
+  const cb = $('#cmpBtn'); if (cb) cb.onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open') && DP.btn === e.currentTarget) return dpClose(); const [x, y] = compareRange(S.from, S.to);
+    dpOpen(e.currentTarget, {title:'Compare with', presets:CMPS, cur:S.cmp, a:x, b:y, min:'2025-01-01', pick:v => { S.cmp = v; }, apply:(p0, p1) => { S.cmp = 'custom'; S.cfrom = p0; S.cto = p1; }}); };
 }
 /* data freshness + owner-only refresh (Andy, 2026-11-10) */
 const agoTxt = iso => { const m = Math.round((Date.now() - new Date(iso)) / 6e4); return m < 60 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
@@ -1220,10 +1247,43 @@ function pHealth() {
       mk1('hrS', {type:'line', data:{labels:days.map(d => fmtD(d)), datasets:tp.map((t, i) => line(t.domain, days.map(d => (t.hist[d] || {}).s ?? null), i ? '#3a80c4' : '#cf4640'))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:3.5, max:5, grid:{color:'#2a2a31'}, ticks:yT()}}}});
       mk1('hrJ', {type:'line', data:{labels:jd.map(d => fmtD(d)), datasets:mk.map(st => line(st, jd.map(d => ((HL.stores[st].judgemeHist || {})[d] || {}).r ?? null), MKC[st]))}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:4.5, max:5, grid:{color:'#2a2a31'}, ticks:yT()}}}});
     }
-    h += tblWrap(`<table><thead><tr><th class="l">Judge.me</th><th>Rating</th><th>Product reviews</th><th>Products with reviews</th></tr></thead><tbody>${mk.map(st => { const j = HL.stores[st].judgeme || {}; return `<tr><td class="l">${FLAGS[st]} ${st}</td><td class="num">${j.rating ? j.rating.toFixed(2) : '–'}</td><td class="num">${int(j.reviews)}</td><td class="num">${int(j.products)}</td></tr>`; }).join('')}</tbody></table>`);
+    // ---------- Judge.me: every review received since 2022, from the Judge.me API (Andy 2026-11-11)
+    const jmk = mk.filter(st => HL.stores[st].jm);
+    if (jmk.length) {
+      const jsum = (a, b, src = 'days') => { const s = [0, 0, 0, 0, 0]; if (!a) return null; for (const st of jmk) for (const [d, v] of Object.entries(HL.stores[st].jm[src] || {})) if (d >= a && d <= b) v.forEach((n, i) => s[i] += n); return s; };
+      const tot = s => s ? s.reduce((x, y) => x + y, 0) : 0, avgS = s => tot(s) ? s.reduce((x, y, i) => x + y * (i + 1), 0) / tot(s) : null;
+      const cur = jsum(A, Bd), prv = jsum(CA, CB), hidN = tot(jsum(A, Bd, 'hid'));
+      const lowP = s => tot(s) ? (s[0] + s[1]) / tot(s) : null;
+      h += `<h2 class="sec">Judge.me reviews <small>every review customers sent${jmk.length < mk.length ? ' · no key yet for ' + mk.filter(st => !jmk.includes(st)).join(', ') : ''}</small></h2>`;
+      h += grid(kp('Reviews received', int(tot(cur)), vs(tot(cur), tot(prv))) +
+        kp('Average stars received', avgS(cur) ? avgS(cur).toFixed(2) : '–', avgS(prv) ? `${avgS(prv).toFixed(2)} in the ${CL}` : 'all reviews, hidden ones included') +
+        kp('1 and 2 star share', lowP(cur) != null ? (lowP(cur) * 100).toFixed(1) + '%' : '–', `${int(cur ? cur[0] + cur[1] : 0)} reviews${lowP(prv) != null ? ` · ${(lowP(prv) * 100).toFixed(1)}% before` : ''}`, lowP(cur) > .08 ? 'bad' : '') +
+        kp('Hidden in Judge.me', int(hidN), `${tot(cur) ? Math.round(hidN / tot(cur) * 100) : 0}% of the reviews received in these dates`) +
+        kp('All time', int(jmk.reduce((x, st) => x + HL.stores[st].jm.n, 0)), `average ${(jmk.reduce((x, st) => x + HL.stores[st].jm.n * HL.stores[st].jm.avg, 0) / jmk.reduce((x, st) => x + HL.stores[st].jm.n, 0)).toFixed(2)} stars received since 2022`), 180);
+      const jg = span <= 62 ? 'day' : span <= 200 ? 'week' : 'month', JB = new Map(), JM = new Map();
+      for (const st of jmk) for (const [d, v] of Object.entries(HL.stores[st].jm.days)) { if (d < A || d > Bd) continue; const kk = KEY[jg](d);
+        const b = JB.get(kk) || [0, 0, 0, 0, 0]; v.forEach((n, i) => b[i] += n); JB.set(kk, b); const m = JM.get(kk) || {}; m[st] = (m[st] || 0) + tot(v); JM.set(kk, m); }
+      const jk = [...JB.keys()].sort(), scol = ['#cf4640', '#e08a3c', '#8a8a94', '#9bc27a', '#4fa37a'];
+      h += `<div class="grid charts3" style="grid-template-columns:1fr 1fr;margin-top:14px">${card('hjS', 'Reviews received per ' + jg, 'by star, hidden reviews included', lg([['5', scol[4]], ['4', scol[3]], ['3', scol[2]], ['2', scol[1]], ['1', scol[0]]]), 250, cs('Received', int(tot(cur))) + cs('Avg stars', avgS(cur) ? avgS(cur).toFixed(2) : '–'))}
+        ${card('hjM', jmk.length > 1 ? 'Reviews received per market' : 'Average stars per ' + jg, jmk.length > 1 ? 'count per ' + jg : 'all reviews received', jmk.length > 1 ? lg(jmk.map(st => [st, MKC[st]])) : '', 250)}</div>`;
+      {
+        mk1('hjS', {type:'bar', data:{labels:jk.map(x => SH[jg](x)), datasets:[4, 3, 2, 1, 0].map(i => bar((i + 1) + ' star', jk.map(x => JB.get(x)[i]), scol[i]))}, options:opt(true, false)});
+        if (jmk.length > 1) mk1('hjM', {type:'bar', data:{labels:jk.map(x => SH[jg](x)), datasets:jmk.map(st => bar(st, jk.map(x => JM.get(x)[st] || 0), MKC[st]))}, options:opt(true, false)});
+        else mk1('hjM', {type:'line', data:{labels:jk.map(x => SH[jg](x)), datasets:[line('Average stars', jk.map(x => avgS(JB.get(x)) ? +avgS(JB.get(x)).toFixed(2) : null), '#c7b48b')]}, options:{...opt(false, false), scales:{x:ax(false).x, y:{min:1, max:5, grid:{color:'#2a2a31'}, ticks:yT()}}}});
+      }
+      // per product, all markets merged by product handle
+      const PM = new Map(); for (const st of jmk) for (const p of HL.stores[st].jm.products) { const b = PM.get(p.h) || {t:p.t, n:0, s:0, n90:0, s90:0, low90:0, mk:new Set()};
+        b.n += p.n; b.s += p.n * p.avg; b.n90 += p.n90; b.s90 += (p.avg90 || 0) * p.n90; b.low90 += p.low90; b.mk.add(st); if (st === 'US' || st === 'UK') b.t = p.t; PM.set(p.h, b); }
+      const prs = [...PM.values()].sort((x, y) => y.n - x.n), showP = S.hjmAll ? prs.length : 15;
+      h += `<h2 class="sec">Reviews by product <small>all time and last 90 days, every review received</small></h2>` + tblWrap(`<table><thead><tr><th class="l">Product</th><th>Reviews</th><th>Avg stars</th><th>Last 90 days</th><th>Avg 90 days</th><th>1-2 star (90 days)</th><th class="l">Markets</th></tr></thead><tbody>${prs.slice(0, showP).map(p =>
+        `<tr><td class="l">${esc(p.t)}</td><td class="num">${int(p.n)}</td><td class="num ${p.s / p.n < 4.5 ? 'down' : ''}">${(p.s / p.n).toFixed(2)}</td><td class="num">${int(p.n90)}</td><td class="num">${p.n90 ? (p.s90 / p.n90).toFixed(2) : '–'}</td><td class="num ${p.low90 ? 'down' : ''}">${int(p.low90)}</td><td class="l">${[...p.mk].map(st => FLAGS[st]).join(' ')}</td></tr>`).join('')}</tbody></table>`) + more('jmp', prs.length, showP);
+      const low = jmk.flatMap(st => HL.stores[st].jm.low.map(r => ({...r, st}))).sort((x, y) => x.d < y.d ? 1 : -1).slice(0, 12);
+      if (low.length) h += `<h2 class="sec">Latest 1 and 2 star reviews <small>what to fix first</small></h2><div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px">${low.map(r =>
+        `<div class="card" style="padding:13px 14px"><div style="display:flex;justify-content:space-between;gap:8px;font-size:12px"><span>${FLAGS[r.st]} ${fmtD(r.d)} · <span style="color:#e0605a">${'★'.repeat(r.r)}${'☆'.repeat(5 - r.r)}</span></span>${r.pub ? '' : '<span class="pill red">hidden</span>'}</div><div style="font-size:12px;color:var(--gold2);margin-top:4px">${esc(r.t || 'Store review')}</div>${r.ti ? `<b style="display:block;margin-top:4px">${esc(r.ti)}</b>` : ''}<div class="muted" style="font-size:12.5px;margin-top:4px">${esc(r.b)}</div></div>`).join('')}</div>`;
+    }
     h += tp.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:12px">${tp.map(t => `<div class="card" style="padding:16px"><div style="display:flex;justify-content:space-between"><b>${esc(t.domain)}</b><span class="num" style="font-size:22px">${t.score != null ? t.score.toFixed(1) : '–'}</span></div><div class="muted" style="font-size:12px;margin-bottom:10px">${int(t.n)} reviews</div>
       ${(t.dist || []).map((n, i) => ({n, s:i + 1})).reverse().map(x => `<div class="rs-p" style="grid-template-columns:52px 1fr 60px"><span>${x.s} star</span><div class="bar"><i style="width:${t.n ? (x.n / t.n * 100).toFixed(1) : 0}%;background:${x.s >= 4 ? '#4fa37a' : x.s === 3 ? '#8a8a94' : '#cf4640'}"></i></div><b>${int(x.n)}</b></div>`).join('')}</div>`).join('')}</div>` : '';
-    h += `<div class="note">Judge.me ratings come from the review metafields Judge.me writes on every Shopify product (all products added up, so duplicated offer products count their reviews again). Trustpilot and Judge.me have no history API without your keys, so the hub stores one snapshot per day from now on; add the Judge.me private keys to get full history.</div>`;
+    h += `<div class="note">Judge.me: every review since 2022 from the Judge.me API with each store's private key (US, UK, AU, CA, DE; NL has no key yet). Counts include reviews hidden in Judge.me, so the average here is lower than the stars shown on the site. Offer duplicates (-1, -copy) are merged into their main product. Trustpilot has no history API, so its score is one snapshot per day since 10 Nov 2026.</div>`;
   }
 
   h += '</div>';
@@ -1234,7 +1294,7 @@ function pHealth() {
     tog($('#hRange'), () => ({title:'Date range', presets:HPRE, cur:pre, a:A, b:Bd, min:first, pick:v => { S.hpre = v; S.hg = null; },
       apply:(x, y) => { const m = HPRE.find(([v]) => v !== '-' && v !== 'all' && hRange(v, first).join() === x + ',' + y); S.hpre = m ? m[0] : 'custom'; S.hfrom = x; S.hto = y; S.hg = null; }}));
     tog($('#hCmp'), () => ({title:'Compare to', presets:HCMP, cur:cmp, a:CA || A, b:CB || Bd, min:first, pick:v => { S.hcmp = v; }, apply:(x, y) => { S.hcmp = 'custom'; S.hca = x; S.hcb = y; }}));
-    $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { const kk = el.dataset.more; if (kk === 'p') S.hpAll = g + A + Bd; if (kk === 'co') S.hcoAll = true; render(); });
+    $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { const kk = el.dataset.more; if (kk === 'p') S.hpAll = g + A + Bd; if (kk === 'co') S.hcoAll = true; if (kk === 'jmp') S.hjmAll = true; render(); });
     $('#view').querySelectorAll('[data-info]').forEach(b => b.onclick = () => openInfo(b.dataset.info));
     after.forEach(f => f());
   });
@@ -1335,7 +1395,7 @@ function pProduction() {
 
 /* ---------------- other pages ---------------- */
 function pMarkets() {
-  const [a, b] = R(), mk = minK(), [ca, cb] = compareRange(a, b), hasC = ca >= MIN_DAY;
+  const [a, b] = R(), mk = minK(), [ca, cb] = compareRange(a, b), hasC = ca >= ((D.pdays && D.pdays[0]) || MIN_DAY);
   let h = head(REV ? 'Every country at a glance' : 'Best video in every country', 'Markets') + '<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">';
   const save = S.market;
   // shares are computed in USD across all markets (Andy 2026-11-10: % of sales, profit, growth, active ads per country)
@@ -1368,7 +1428,7 @@ function pMarkets() {
   }
   S.market = save;
   afterRender.push(() => document.querySelectorAll('.mk[data-st]').forEach(el => el.onclick = () => openConcept(el.dataset.c, el.dataset.st)));
-  return h + `</div><div class="note">${hasC ? `▲▼ = change vs ${fmtD(ca)} – ${fmtD(cb)}. ` : ''}Shares are of all markets combined, in USD. Ads live = ads that spent in these dates.</div>`;
+  return h + `</div><div class="note">${hasC ? `▲▼ = change vs ${fmtD(ca)} – ${fmtD(cb)}${ca.slice(0, 4) !== a.slice(0, 4) ? ' ' + ca.slice(0, 4) : ''}${ca < D.days[0] ? ' (days before ' + fmtD(D.days[0]) + ' outside whole months carry revenue, spend, profit, orders and new customers only, so ROAS has no change for them)' : ''}. ` : ''}Shares are of all markets combined, in USD. Ads live = ads that spent in these dates.</div>`;
 }
 function pRookies() {
   const [a, b] = R();
@@ -1485,8 +1545,8 @@ function pGuide() {
    Ready-made ad copy for designers. Data = D.copybank (base layer, every role), built by pipeline/copybank.py
    from the copy canvases + copy messages of Slack #design; lines marked new were written in the same style. */
 const CB = {q:'', prod:'', angle:'', offer:'', fmt:'', camp:'', avatar:'', onlyNew:false, hideFlag:false};
-const CB_FMT = ['Headline','Subhead','Campaign name','Tagline / badge','USP','Compared at','If this is him','POV','ChatGPT prompt','Testimonial headline','Testimonial quote','Note ad','iMessage ad','Late notice'];
-const CB_BLOCK = new Set(['Note ad','iMessage ad','Late notice']);
+const CB_FMT = ['Winning ad: headline','Winning ad: primary text','Headline','Subhead','Campaign name','Tagline / badge','USP','Compared at','If this is him','POV','ChatGPT prompt','Testimonial headline','Testimonial quote','Note ad','iMessage ad','Late notice'];
+const CB_BLOCK = new Set(['Note ad','iMessage ad','Late notice','Winning ad: primary text']);
 const CB_PROD = ['LOKI','ODIN','VALHALLA','BJORN','Feather','RAGNAR','Ragnarok Rising','Dragon Cleaver'];
 const CB_CAMP = ['Evergreen','Black Friday','Holiday / Christmas','Winter','Father\'s Day','Memorial Day','Summer','Prime Day','Labor Day','Anniversary','Halloween'];
 function cbFiltered() {
@@ -1495,7 +1555,7 @@ function cbFiltered() {
     (!CB.prod || L.prod.includes(CB.prod) || L.prod.includes('All')) && (!CB.angle || L.angle === CB.angle) &&
     (!CB.offer || L.offer === CB.offer) && (!CB.fmt || L.fmt === CB.fmt) && (!CB.camp || L.camp === CB.camp) &&
     (!CB.avatar || L.avatar === CB.avatar) && (!CB.onlyNew || L.src === 'new') && (!CB.hideFlag || !(L.flags && L.flags.length)) &&
-    (!q || (L.t + ' ' + (L.title || '') + ' ' + L.angle + ' ' + L.camp + ' ' + L.prod.join(' ')).toLowerCase().includes(q)));
+    (!q || q.split(/\s+/).every(w => (L.t + ' ' + (L.title || '') + ' ' + L.angle + ' ' + L.camp + ' ' + L.fmt + ' ' + L.avatar + ' ' + (L.offer || '') + ' ' + L.prod.join(' ') + ' ' + (L.note || '')).toLowerCase().includes(w))));
 }
 function cbSel(key, label, opts) {
   return `<label class="cb-f"><span>${label}</span><select data-cb="${key}"><option value="">All</option>${opts.map(o => `<option ${CB[key] === o ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
@@ -1509,12 +1569,15 @@ function pCopy() {
   const srcs = Object.entries(C.sources).filter(([k]) => k !== 'new');
   afterRender.push(wireCopy);
   return `<div class="page-head"><div><div class="kicker">For designers · ready to paste on a static</div><h1>Copy bank</h1></div>
-    <div class="meta">${C.lines.length - nNew} lines from our Slack canvases · <span class="pill gold">NEW</span> ${nNew} written in the same style</div></div>
+    <div class="meta">${C.lines.filter(L => L.win).length} lines from our best ads (first) · ${C.lines.length - nNew - C.lines.filter(L => L.win).length} from our Slack canvases · <span class="pill gold">NEW</span> ${nNew} written in the same style</div></div>
   <div class="cb-offer"><span class="pill green">Live offer</span><b>${esc(C.live_offer)}</b></div>
   <details class="cb-rules"><summary>Rules before you design (from the #design canvases)</summary><ul>${C.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
     <h4>The five avatars</h4><ul>${Object.entries(C.avatars).map(([a, t]) => `<li><b>${a}</b> · ${esc(t)}</li>`).join('')}</ul></details>
+  <div class="cb-search"><label for="cbQ">What is the copy for?</label>
+    <div class="cb-sbox"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input type="search" id="cbQ" placeholder="Type what you are making: Christmas gift, BBQ, Feather, hunter, Black Friday..." value="${esc(CB.q)}" autocomplete="off"></div>
+    <div class="cb-chips">${['Christmas','Black Friday','gift','BBQ','steak','Feather','LOKI','ODIN','collector','hunter','Buy 2 Get 2','Winning ad'].map(w => `<button class="cb-chip${CB.q.toLowerCase() === w.toLowerCase() ? ' on' : ''}" data-q="${esc(w)}">${esc(w)}</button>`).join('')}</div>
+    <div class="cb-hint">Searches the words, the product, the campaign, the angle, the avatar and the format. Several words narrow it down: <i>gift Feather</i>.</div></div>
   <div class="cb-bar">
-    <input type="search" id="cbQ" placeholder="Search a word: gift, brisket, Damascus, socks..." value="${esc(CB.q)}">
     ${cbSel('prod', 'Product', CB_PROD)}${cbSel('angle', 'Angle', uniq('angle').sort())}${cbSel('offer', 'Offer', order(uniq('offer'), ['No offer','Buy 2 Get 2','% off','Sale (any offer)','Buy 2 Get 1 (old)']))}
     ${cbSel('fmt', 'Format', order(uniq('fmt'), CB_FMT))}${cbSel('camp', 'Campaign', order(uniq('camp'), CB_CAMP))}${cbSel('avatar', 'Avatar', ['MIKE','STEVE','JOHN','DON','COLE'])}
     <div class="cb-tg"><label><input type="checkbox" id="cbNew" ${CB.onlyNew ? 'checked' : ''}> New lines only</label><label><input type="checkbox" id="cbFlag" ${CB.hideFlag ? 'checked' : ''}> Hide lines to fix</label>
@@ -1528,8 +1591,9 @@ function drawCopy() {
   const el = $('#cbList'); if (!el) return;
   const rows = cbFiltered();
   const pill = L => [
+    L.win ? `<span class="pill green">🏆 ${L.win.roas.toFixed(2)} First Click ROAS · $${L.win.sp >= 1000 ? Math.round(L.win.sp / 1000) + 'k' : L.win.sp} spent · ${L.win.o} orders · ${L.win.mk.map(m => FLAGS[m] || m).join(' ')}</span>` : '',
     L.src === 'new' ? '<span class="pill gold">NEW</span>' : '',
-    `<span class="pill">${esc(L.camp)}</span>`, `<span class="pill">${esc(L.angle)}</span>`,
+    L.win ? '' : `<span class="pill">${esc(L.camp)}</span>`, L.win ? '' : `<span class="pill">${esc(L.angle)}</span>`,
     L.prod.includes('All') ? '' : `<span class="pill blue">${esc(L.prod.join(' / '))}</span>`,
     L.avatar && L.avatar !== 'All' ? `<span class="pill">${esc(L.avatar)}</span>` : '',
     L.offer && L.offer !== 'No offer' ? `<span class="pill ${L.offer.includes('old') ? 'red' : 'green'}">${esc(L.offer)}</span>` : '',
@@ -1550,7 +1614,8 @@ function cbCopy(text, node) {
 }
 function wireCopy() {
   const q = $('#cbQ'); if (!q) return;
-  q.oninput = () => { CB.q = q.value; drawCopy(); };
+  q.oninput = () => { CB.q = q.value; document.querySelectorAll('.cb-chip').forEach(c => c.classList.toggle('on', c.dataset.q.toLowerCase() === CB.q.trim().toLowerCase())); drawCopy(); };
+  document.querySelectorAll('.cb-chip').forEach(c => c.onclick = () => { const on = CB.q.trim().toLowerCase() === c.dataset.q.toLowerCase(); q.value = on ? '' : c.dataset.q; q.oninput(); q.focus(); });
   document.querySelectorAll('[data-cb]').forEach(s => s.onchange = () => { CB[s.dataset.cb] = s.value; drawCopy(); });
   $('#cbNew').onchange = e => { CB.onlyNew = e.target.checked; drawCopy(); };
   $('#cbFlag').onchange = e => { CB.hideFlag = e.target.checked; drawCopy(); };
@@ -1577,8 +1642,8 @@ function openConcept(key, onlyStore) {
   const tags = ['product','format','angle','hook_tactic','structure','funnel','creator'].map(kk => c[kk] && `<span class="pill">${esc(c[kk])}</span>`).filter(Boolean).join(' ');
   $('#drawer').innerHTML = `<button class="close" id="dClose">✕</button>
     ${vids.length ? `<div style="padding:16px 20px 0"><video class="player" id="dPlayer" controls playsinline autoplay src="${esc(vids[0].ad.v)}" poster="${esc(vids[0].ad.th || '')}"></video>
-      ${vids.length > 1 ? `<div class="vlist">${vids.slice(0, 12).map((x, i) => `<button class="btn ghost sm ${i === 0 ? 'on' : ''}" data-v="${esc(x.ad.v)}">${FLAGS[x.ad.s]} ${esc(x.ad.hook || 'cut ' + (i + 1))}</button>`).join('')}</div>` : ''}</div>` : ''}
-    <div class="dr-head">${vids.length ? '' : `<img src="${esc(c.thumb || '')}" alt="">`}<div style="min-width:0">
+      ${vids.length > 1 ? `<div class="vlist">${vids.slice(0, 12).map((x, i) => `<button class="btn ghost sm ${i === 0 ? 'on' : ''}" data-v="${esc(x.ad.v)}">${FLAGS[x.ad.s]} ${esc(x.ad.hook || 'cut ' + (i + 1))}</button>`).join('')}</div>` : ''}</div>` : `<div style="padding:16px 20px 0"><a href="${esc(c.thumb || '')}" target="_blank" rel="noopener" title="Open the image on its own"><img class="dr-big" src="${esc(c.thumb || '')}" alt="${esc(c.title)}"></a></div>`}
+    <div class="dr-head"><div style="min-width:0">
     <div class="muted" style="font-size:12px">${esc(c.id || '')} · ${c.kind === 'VID' ? 'Video' : 'Static'} ${(() => { const i = firstLive().get(c.key); return i > 0 ? '· first spend ' + fmtD(D.days[i]) : ''; })()} · ${mkt === 'ALL' ? 'all countries' : mkt}</div><h3>${esc(c.title)}</h3>
     <div class="muted" style="font-size:12.5px">${esc([c.editor && 'Editor ' + c.editor, c.designer && 'Designer ' + c.designer, c.strategist && 'Strategist ' + c.strategist].filter(Boolean).join(' · '))}</div>
     <div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap"><span class="pill ${ROLE[c.role][1]}">${ROLE[c.role][0]}</span> ${tags}</div></div></div>
@@ -1616,8 +1681,9 @@ function openConcept(key, onlyStore) {
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{callbacks:{label:i => { const cc = weeks[i.dataIndex][2]; return cc ? `ROAS ${x2(cc.r[S.model])} · spend ${money(cc.sp)}` : 'not live'; }}}},
       scales:{x:{grid:{display:false}, ticks:{color:'#8a8a94', font:{size:10}}}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#8a8a94'}}}}});
 }
+function closeAll() { $('#side').classList.remove('open'); closeDrawer(); }
 function closeDrawer() { const p = $('#dPlayer'); if (p) p.pause(); $('#drawer').classList.remove('open'); $('#scrim').classList.remove('open'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeDrawer(); dpClose(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeAll(); dpClose(); } });
 
 /* ---------------- boot ---------------- */
 function showApp() {
