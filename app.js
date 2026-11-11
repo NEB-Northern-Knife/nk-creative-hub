@@ -776,6 +776,7 @@ function openBonus(who, month) {
 function pReports() {
   const [a, b] = R(), mk = minK();
   let h = head('One card per editor', 'Editor reports');
+  if (HL && HL.bonus) h = h.replace('</h1>', '</h1><button class="bn-link" data-bonus="" title="Editor bonus (owner only)">bonus</button>');
   const all = concepts(a, b).filter(c => c.kind === 'VID' && c.editor);
   const teamBm = benchmark(all);
   const agg = list => { const v = {im:0, v3:0, tp:0, oc:0}; let sp = 0, rev = 0, usd = 0;
@@ -833,7 +834,7 @@ function pReports() {
   const BB = HL && HL.bonus, bmsL = BB ? BB.months.length - 1 : -1;
   const bnRun = n => ((BB && BB.editors[n]) || []).reduce((x, c) => x + bonusOf(c, bmsL).earned, 0);
   const bnTot = BB ? Object.keys(BB.editors).reduce((x, n) => x + bnRun(n), 0) : 0;
-  h += `<div class="rs-team card">${BB ? `<div class="bn-kpi" data-bonus="" title="Open the bonus details"><span>Bonus to pay early ${MON(nextMonth(D.today.slice(0, 7)))}</span><b class="g-money">${money(bnTot)}</b><em class="muted" style="font-size:11px">earned in ${MON(D.today.slice(0, 7))} so far · details ›</em></div>` : ''}<div><span>Videos edited / editor</span><b>${team.inRange.toFixed(1)}</b><em class="muted" style="font-size:11px">in these dates</em></div>`; h += `<div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
+  h += `<div class="rs-team card"><div><span>Videos edited / editor</span><b>${team.inRange.toFixed(1)}</b><em class="muted" style="font-size:11px">in these dates</em></div>`; h += `<div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
     <div><span>Hook · Hold</span><b>${pct(team.agg.hook, 0)} · ${pct(team.agg.hold, 0)}</b></div><div><span>Spend per concept</span><b>${money(team.spc)}</b></div><div><span>Videos / editor / week</span><b>${team.perWeek.toFixed(1)}</b></div><div><span>Editing now</span><b>${team.prod}</b><em class="muted" style="font-size:11px">${team.prod - team.prodDE} EN · ${team.prodDE} 🇩🇪 · ${team.prodPer.toFixed(1)} / editor</em></div></div>`;
   h += '<div class="rs-grid">' + eds.map((e, idx) => {
     const tested = e.cs.filter(c => c.usd >= mk).length >= 2 ? e.cs.filter(c => c.usd >= mk) : e.cs.filter(c => c.sp > 0);
@@ -850,7 +851,6 @@ function pReports() {
         <div class="rs-rank">#${idx + 1}<span>by spend</span></div></div>
       <div class="rs-stats">
         ${stat('Editing now', e.prod, chip(e.prod, team.prodPer), `${e.prodEN} English · ${e.prodDE} German 🇩🇪`)}
-        ${BB ? `<div class="rs-s bn-kpi" data-bonus="${esc(e.n)}" title="Open the bonus details"><span>Bonus ${MON(D.today.slice(0, 7))}</span><b class="g-money">${money(bnRun(e.n))}</b><em>paid early ${MON(nextMonth(D.today.slice(0, 7)))} · details ›</em></div>` : ''}
         ${stat('Spend', money(e.a.sp), chip(e.cs.length ? e.a.sp / e.cs.length : null, team.spc), 'per concept: ' + money(e.cs.length ? e.a.sp / e.cs.length : 0))}
         ${stat(MODELS[S.model] + ' ROAS', `<span class="${rc(e.a.roas)}">${x2(e.a.roas)}</span>`, chip(e.a.roas, teamBm), money(e.a.rev) + ' revenue')}
         ${stat('Hit rate', pct(rate(e.hit), 0), chip(rate(e.hit), rate(team.hit), 'pt'), `${e.hit.hits} of ${e.hit.tested} with $1k+ spend`)}
