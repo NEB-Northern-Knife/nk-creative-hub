@@ -687,3 +687,27 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 /* static detail: the image full width, data below (Andy 2026-11-11) */
 .dr-big{display:block;width:100%;max-height:78vh;object-fit:contain;border-radius:12px;background:#000;border:1px solid var(--line)}
 .cmp-btn b{color:var(--gold);font-weight:600;margin-left:2px}
+
+/* website conversion page (Andy 2026-11-11) */
+.cv-period{font-size:12.5px;margin:-6px 0 4px}
+.cv-ins{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.cv-in{display:flex;gap:12px;align-items:flex-start;font-size:13px;line-height:1.5}
+.cv-ic{font-size:22px;line-height:1;flex:none}
+.cv-it{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold2);margin-bottom:3px}
+.cv-types{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.cv-ty .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.cv-big{font-size:26px;font-weight:600;margin:6px 0 8px}.cv-big small{font-size:12px;color:var(--muted);font-weight:400}
+.cv-bar{height:6px;background:var(--panel3);border-radius:3px;overflow:hidden}.cv-bar i{display:block;height:100%;background:var(--gold2)}
+.cv-sub{font-size:12px;color:var(--text2);margin-top:8px}
+.cv-tests{display:grid;gap:8px}
+.cv-t{padding:12px 14px}.cv-t summary{cursor:pointer;list-style:none}.cv-t summary::-webkit-details-marker{display:none}
+.cv-th{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cv-id{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--gold2);background:var(--panel2);border-radius:6px;padding:2px 7px}
+.cv-tm{font-size:12px;color:var(--muted);margin-top:4px}
+.cv-lifts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.cv-lift{font-size:12px;font-weight:600;background:var(--panel2);border-radius:6px;padding:2px 8px}
+.cv-tx{font-size:12.5px;color:var(--text2);margin-top:10px;white-space:pre-wrap}.cv-tx b{color:var(--gold);margin-right:6px}
+.cv-cl{font-size:13px;color:var(--text2)}
+@media (max-width:1000px){.cv-types{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.cv-ins{grid-template-columns:1fr}}
+.cb-card,.cb-row{min-width:0}.cb-meta .pill{white-space:normal}.cb-cards{grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))}
