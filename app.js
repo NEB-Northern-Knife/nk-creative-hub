@@ -37,6 +37,7 @@ async function login(pw) {
   bd.kpi = rv ? rv.kpi : empty(bd.days.length); bd.mkpi = rv ? rv.mkpi : empty((bd.months || []).length);
   bd.paid = rv ? rv.paid : empty(bd.days.length); bd.mpaid = rv ? rv.mpaid : empty((bd.months || []).length);
   bd.pdays = rv && rv.pdays || []; bd.pkpi = rv && rv.pkpi || [];
+  bd.conv = rv && rv.conv || null;
   if (ow) {
     ow.kpi.forEach((day, i) => { for (const [st, q] of Object.entries(day)) if (bd.kpi[i] && bd.kpi[i][st]) bd.kpi[i][st] = bd.kpi[i][st].concat(q); });
     (ow.mkpi || []).forEach((mo, i) => { for (const [st, q] of Object.entries(mo)) if (bd.mkpi[i] && bd.mkpi[i][st]) bd.mkpi[i][st] = bd.mkpi[i][st].concat(q); });
@@ -45,7 +46,7 @@ async function login(pw) {
   if (bd.v !== 2) throw new Error('old data format');
   D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
-const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','strategist','owner'], health:['owner']};
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','strategist','owner'], health:['owner'], conv:['strategist','owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev', cmp:'prev', cfrom:null, cto:null};
 const charts = {};
@@ -308,8 +309,9 @@ const ICONS = {
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
 ICONS.health = '<path d="M3 12h4l2-5 4 10 2-5h6"/>';
+ICONS.conv = '<path d="M3 4h18l-7 8v6l-4 2v-8z"/>';
 ICONS.copy = '<path d="M4 5h16M4 10h16M4 15h10"/><path d="M15 19l2 2 4-4"/>';
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['copy','Copy bank'],['markets','Markets'],['health','Business health'],
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['copy','Copy bank'],['markets','Markets'],['conv','Website conversion'],['health','Business health'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -469,7 +471,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, copy:pCopy, markets:pMarkets, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, copy:pCopy, markets:pMarkets, conv:pConv, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireFresh();
@@ -1627,6 +1629,135 @@ function wireCopy() {
   };
   drawCopy();
 }
+
+
+/* ---------------- website conversion (Andy 2026-11-11): funnels, PDPs, A/B tests, Clarity ---------------- */
+const CV = {type:'all', all:false, tst:'done'};
+function cvName(p) {
+  if (p === '/') return 'Homepage';
+  const seg = p.split('/').pop(), tc = s => s.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  if (/^6rg?-/.test(seg)) return `6 Reasons ${seg.startsWith('6rg') ? 'gift ' : ''}LP · ${tc(seg.replace(/^6rg?-/, ''))}`;
+  if (seg === 'buy-2-get-2-free-products') return 'B2G2 offer page (build your set)';
+  if (seg === 'buy-1-get-1-free-products') return 'B1G1 offer page';
+  if (p.startsWith('/collections/')) return tc(seg) + ' (collection)';
+  return tc(seg);
+}
+function pConv() {
+  const X = D.conv;
+  const top = freshBar() + `<div class="page-head"><div><div class="kicker">Funnels · landing pages · product pages · A/B tests</div><h1>Website conversion</h1></div>
+    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined' : S.market} · ${curCode()}</div></div>`;
+  if (!X) return top + '<div class="empty">The conversion data is not in this build yet.</div>';
+  const mk = Object.keys(X.stores).filter(st => S.market === 'ALL' || st === S.market);
+  // merge pages across the chosen markets, money in the displayed currency
+  const P = new Map(); const T = {s:0, o:0, r:0, a:0, b:0, s0:0, o0:0, r0:0, a0:0, b0:0};
+  for (const st of mk) { const c = k(st);
+    for (const [p, v] of Object.entries(X.stores[st].pages)) { const x = P.get(p) || {p, s:0, o:0, r:0, a:0, b:0, s0:0, o0:0, r0:0, a0:0, b0:0, mk:new Set()};
+      x.s += v[0]; x.o += v[1]; x.r += v[2] * c; x.a += v[3]; x.b += v[4]; x.s0 += v[5]; x.o0 += v[6]; x.r0 += v[7] * c; x.a0 += v[8]; x.b0 += v[9]; if (v[0] > 50) x.mk.add(st); P.set(p, x); } }
+  const tw = {}; for (const st of mk) { const c = k(st); for (const [w, v] of Object.entries(X.stores[st].weeks)) { const x = tw[w] || (tw[w] = {s:0, o:0, r:0, a:0, b:0}); x.s += v[0]; x.o += v[1]; x.r += v[2] * c; x.a += v[3]; x.b += v[4]; } }
+  const dev = {}; for (const st of mk) { const c = k(st); for (const [d, v] of Object.entries(X.stores[st].device || {})) { const x = dev[d] || (dev[d] = {s:0, o:0, r:0}); x.s += v[0]; x.o += v[1]; x.r += v[2] * c; } }
+  const rows = [...P.values()].map(x => ({...x, type:page_type(x.p), cvr:x.s ? x.o / x.s : 0, aov:x.o ? x.r / x.o : 0, rpv:x.s ? x.r / x.s : 0, atc:x.s ? x.a / x.s : 0, br:x.s ? x.b / x.s : 0,
+    cvr0:x.s0 ? x.o0 / x.s0 : null, rpv0:x.s0 ? x.r0 / x.s0 : null, aov0:x.o0 ? x.r0 / x.o0 : null}));
+  for (const x of rows) for (const f of ['s', 'o', 'r', 'a', 'b', 's0', 'o0', 'r0', 'a0', 'b0']) T[f] += x[f];
+  const site = {cvr:T.s ? T.o / T.s : 0, aov:T.o ? T.r / T.o : 0, rpv:T.s ? T.r / T.s : 0, atc:T.s ? T.a / T.s : 0, br:T.s ? T.b / T.s : 0};
+  const prev = {cvr:T.s0 ? T.o0 / T.s0 : 0, aov:T.o0 ? T.r0 / T.o0 : 0, rpv:T.s0 ? T.r0 / T.s0 : 0, atc:T.s0 ? T.a0 / T.s0 : 0, br:T.s0 ? T.b0 / T.s0 : 0};
+  const any = Object.values(X.stores)[0] || {}, cur = any.cur || [], pr = any.prev || [];
+  const dl = (c, p, inv, pts) => { if (!p) return '<span class="muted">no earlier data</span>'; const d = pts ? (c - p) * 100 : (c - p) / p, good = inv ? d < 0 : d > 0;
+    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${pts ? d.toFixed(2) + ' pts' : (d * 100).toFixed(1) + '%'}</span> <span class="muted">vs the 30 days before</span>`; };
+  const kp = (l, v, sub, cls = '') => `<div class="card kpi"><div class="lbl">${l}</div><div class="val num ${cls}">${v}</div><div class="delta">${sub}</div></div>`;
+  let h = top + `<div class="cv-period muted">Last 30 days: <b>${cur[0] ? fmtD(cur[0]) + ' – ' + fmtD(cur[1]) : ''}</b>, compared with ${pr[0] ? fmtD(pr[0]) + ' – ' + fmtD(pr[1]) : 'the 30 days before'} · Triple Whale pixel sessions by landing page (the page a visit started on)</div>`;
+  h += `<div class="grid kpis" style="margin-top:12px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">${kp('Sessions', int(T.s), dl(T.s, T.s0))}${kp('Conversion rate', pct(site.cvr, 2), dl(site.cvr, prev.cvr, false, true))}${kp('Average order', money(site.aov), dl(site.aov, prev.aov))}
+    ${kp('Revenue per session', money(site.rpv, 2), dl(site.rpv, prev.rpv), 'gold')}${kp('Add to cart rate', pct(site.atc, 1), dl(site.atc, prev.atc, false, true))}${kp('Bounce rate', pct(site.br, 1), dl(site.br, prev.br, true, true))}</div>`;
+
+  // ---------- insights written from the numbers
+  const big = Math.max(800, T.s * .01), ins = [];
+  const pool = rows.filter(x => x.s >= big && x.type !== 'Other');
+  // best funnel = pages that carry real traffic (3%+ of sessions), so a small email-only campaign page cannot win it
+  const best = pool.filter(x => x.s >= T.s * .03 && x.type !== 'Home').sort((x, y) => y.rpv - x.rpv)[0];
+  if (best) ins.push(['🏆', 'Best funnel', `<b>${esc(cvName(best.p))}</b> makes <b>${money(best.rpv, 2)}</b> per session, ${(best.rpv / site.rpv).toFixed(1)}x the site average, on ${pct(best.s / T.s, 0)} of all sessions (${pct(best.cvr, 2)} conversion, ${money(best.aov)} average order).`]);
+  for (const ty of ['Landing page', 'Product page']) { const g = pool.filter(x => x.type === ty && x.s >= Math.max(1500, big)).sort((x, y) => y.cvr - x.cvr);
+    if (g.length >= 2) { const a = g[0], z = g[g.length - 1]; ins.push([ty === 'Landing page' ? '📄' : '🔪', ty === 'Landing page' ? 'Landing pages' : 'Product pages',
+      `<b>${esc(cvName(a.p))}</b> converts <b>${pct(a.cvr, 2)}</b> vs <b>${esc(cvName(z.p))}</b> at ${pct(z.cvr, 2)}: ${(a.cvr / z.cvr).toFixed(1)}x. Per session that is ${money(a.rpv, 2)} vs ${money(z.rpv, 2)}.`]); } }
+  // leak = a busy page below the other pages of its own type (cold landing pages are only compared with landing pages)
+  const tAvg = x => { const g = pool.filter(y => y.type === x.type && y.p !== x.p); const s2 = g.reduce((a2, y) => a2 + y.s, 0); return s2 ? g.reduce((a2, y) => a2 + y.r, 0) / s2 : null; };
+  const leak = pool.filter(x => (x.type === 'Landing page' || x.type === 'Product page') && x.s >= T.s * .03 && tAvg(x) && x.rpv < tAvg(x) * .85).sort((x, y) => (y.s * (tAvg(y) - y.rpv)) - (x.s * (tAvg(x) - x.rpv)))[0];
+  if (leak) ins.push(['🚰', 'Biggest leak', `<b>${esc(cvName(leak.p))}</b> takes ${pct(leak.s / T.s, 0)} of all sessions but makes ${money(leak.rpv, 2)} per session, vs ${money(tAvg(leak), 2)} on the other ${leak.type === 'Landing page' ? 'landing pages' : leak.type === 'Product page' ? 'product pages' : 'pages of its type'}. Matching them would be worth about <b>${money(leak.s * (tAvg(leak) - leak.rpv))}</b> over 30 days.`]);
+  const mov = pool.filter(x => x.s0 >= big && x.rpv0).sort((x, y) => Math.abs(y.rpv / y.rpv0 - 1) - Math.abs(x.rpv / x.rpv0 - 1))[0];
+  if (mov) { const d = mov.rpv / mov.rpv0 - 1; ins.push([d > 0 ? '📈' : '📉', 'Biggest change', `<b>${esc(cvName(mov.p))}</b>: ${money(mov.rpv, 2)} per session, ${d > 0 ? 'up' : 'down'} ${pct(Math.abs(d), 0)} on the 30 days before (conversion ${pct(mov.cvr0, 2)} → ${pct(mov.cvr, 2)}).`]); }
+  if (dev.mobile && dev.desktop && dev.mobile.s && dev.desktop.s) { const m = dev.mobile.o / dev.mobile.s, d = dev.desktop.o / dev.desktop.s;
+    ins.push(['📱', 'Mobile vs desktop', `${pct(dev.mobile.s / Object.values(dev).reduce((x, y) => x + y.s, 0), 0)} of sessions are on mobile. Mobile converts <b>${pct(m, 2)}</b>, desktop <b>${pct(d, 2)}</b> (${(Math.max(m, d) / Math.min(m, d)).toFixed(1)}x ${m > d ? 'in favour of mobile' : 'in favour of desktop'}).`]); }
+  h += `<h2 class="sec">What the numbers say</h2><div class="cv-ins">${ins.map(([i, t, b]) => `<div class="card cv-in"><div class="cv-ic">${i}</div><div><div class="cv-it">${t}</div><div>${b}</div></div></div>`).join('')}</div>`;
+
+  // ---------- funnel types
+  const TY = ['Landing page', 'Offer / collection', 'Product page', 'Home'];
+  const ty = TY.map(t => { const g = rows.filter(x => x.type === t); const s = g.reduce((a, x) => a + x.s, 0), o = g.reduce((a, x) => a + x.o, 0), r = g.reduce((a, x) => a + x.r, 0), at = g.reduce((a, x) => a + x.a, 0);
+    return {t, s, o, r, cvr:s ? o / s : 0, aov:o ? r / o : 0, rpv:s ? r / s : 0, atc:s ? at / s : 0, n:g.length}; });
+  h += `<h2 class="sec">Funnels by type <small>where visits start and what they are worth</small></h2><div class="cv-types">${ty.map(x => `<div class="card cv-ty"><div class="lbl">${x.t}</div><div class="cv-big num">${money(x.rpv, 2)}<small> / session</small></div>
+    <div class="cv-bar"><i style="width:${(x.s / T.s * 100).toFixed(1)}%"></i></div><div class="cv-sub">${pct(x.s / T.s, 0)} of sessions · ${pct(x.cvr, 2)} conversion · ${money(x.aov)} AOV · ${pct(x.atc, 1)} add to cart</div></div>`).join('')}</div>`;
+
+  // ---------- weekly trend
+  const wk = Object.keys(tw).sort();
+  h += `<div class="grid charts" style="margin-top:14px"><div class="card chart-card"><h3>Conversion rate per week</h3><div class="sub">orders ÷ sessions, all landing pages${wk.length && wk[wk.length - 1] > addD(D.today, -7) ? ' · last week still running' : ''}</div><div class="chart-wrap"><canvas id="cvW1"></canvas></div></div>
+    <div class="card chart-card"><h3>Average order per week</h3><div class="sub">${curCode()}</div><div class="chart-wrap"><canvas id="cvW2"></canvas></div></div>
+    <div class="card chart-card"><h3>Revenue per session per week</h3><div class="sub">${curCode()}, the number a page test should move</div><div class="chart-wrap"><canvas id="cvW3"></canvas></div></div></div>`;
+  afterRender.push(() => {
+    const lab = wk.map(w => fmtD(w)), TT = {backgroundColor:'#1b1b1f', borderColor:'#36363e', borderWidth:1, titleColor:'#f0f0f2', bodyColor:'#c9c9cf'};
+    const mkc = (id, data, fmt, col) => { const el = $('#' + id); if (!el) return; charts[id] = new Chart(el, {type:'line', data:{labels:lab, datasets:[{data, borderColor:col, backgroundColor:col, borderWidth:2, pointRadius:2, tension:.25}]},
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}, tooltip:{...TT, callbacks:{label:c => fmt(c.raw)}}}, scales:{x:{grid:{display:false}, ticks:{color:'#a3a3ad', maxRotation:0, autoSkip:true, maxTicksLimit:8}}, y:{grid:{color:'#2a2a31'}, ticks:{color:'#a3a3ad', callback:fmt}}}}}); };
+    mkc('cvW1', wk.map(w => tw[w].s ? +(tw[w].o / tw[w].s * 100).toFixed(2) : null), v => v + '%', '#c7b48b');
+    mkc('cvW2', wk.map(w => tw[w].o ? Math.round(tw[w].r / tw[w].o) : null), v => money(v), '#3a80c4');
+    mkc('cvW3', wk.map(w => tw[w].s ? +(tw[w].r / tw[w].s).toFixed(2) : null), v => money(v, 2), '#52b788');
+  });
+
+  // ---------- pages table
+  const TF = [['all', 'All pages'], ['Landing page', 'Landing pages'], ['Product page', 'Product pages'], ['Offer / collection', 'Offer & collections'], ['Home', 'Homepage']];
+  const list = rows.filter(x => (CV.type === 'all' || x.type === CV.type) && x.s >= 100).sort((x, y) => y.s - x.s);
+  const show = CV.all ? list : list.slice(0, 25);
+  const chg = (c, p) => p ? `<span class="${c >= p ? 'up' : 'down'}" style="font-size:11px">${c >= p ? '▲' : '▼'}${Math.abs((c / p - 1) * 100).toFixed(0)}%</span>` : '';
+  h += `<h2 class="sec">Every landing page <small>offer twins and /collections/…/products/ links merged into their product page</small></h2>
+    <div class="tabs" id="cvT">${TF.map(([v, l]) => `<button data-v="${v}" class="${CV.type === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="tbl-wrap"><table><thead><tr><th class="l">Page</th><th class="l">Type</th><th>Sessions</th><th>Conversion</th><th>AOV</th><th>Revenue / session</th><th>vs site</th><th>Add to cart</th><th>Bounce</th><th class="l">Markets</th></tr></thead><tbody>
+    ${show.map(x => `<tr><td class="l" title="${esc(x.p)}"><b>${esc(cvName(x.p))}</b><div class="muted" style="font-size:11px">${esc(x.p)}</div></td><td class="l">${x.type}</td><td class="num">${int(x.s)}</td>
+      <td class="num">${pct(x.cvr, 2)} ${chg(x.cvr, x.cvr0)}</td><td class="num">${x.o ? money(x.aov) : '–'}</td><td class="num"><b>${money(x.rpv, 2)}</b> ${chg(x.rpv, x.rpv0)}</td>
+      <td class="num ${x.rpv >= site.rpv ? 'up' : 'down'}">${site.rpv ? (x.rpv / site.rpv).toFixed(2) + 'x' : '–'}</td><td class="num">${pct(x.atc, 1)}</td><td class="num">${pct(x.br, 0)}</td><td class="l">${[...x.mk].map(st => FLAGS[st]).join(' ')}</td></tr>`).join('')}</tbody></table></div>
+    ${list.length > show.length ? `<button class="btn ghost sm" id="cvAll" style="margin-top:10px">Show all ${list.length} pages</button>` : ''}`;
+
+  // ---------- A/B tests
+  const tests = X.tests || [], done = tests.filter(t => t.verdict), live = tests.filter(t => t.status === 'Live' && !t.verdict), queue = tests.filter(t => !t.verdict && t.status !== 'Live');
+  const won = done.filter(t => t.verdict === 'Winner'), lost = done.filter(t => /Loser|control won/.test(t.verdict));
+  const lift = (v, l) => v == null ? '' : `<span class="cv-lift ${v >= 0 ? 'up' : 'down'}">${l} ${v >= 0 ? '+' : ''}${v}%</span>`;
+  const vp = v => `<span class="pill ${v === 'Winner' ? 'green' : /Loser|control/.test(v) ? 'red' : v ? '' : 'blue'}">${v || 'Live'}</span>`;
+  const tcard = t => `<details class="card cv-t"><summary><div class="cv-th"><span class="cv-id">${esc(t.id || 'idea')}</span>${vp(t.verdict || (t.status === 'Live' ? 'Live' : ''))}<b>${esc(t.name)}</b></div>
+    <div class="cv-tm">${t.mk && t.mk.length ? t.mk.map(m => esc(m)).join(' · ') + ' · ' : ''}${esc(t.page || '')}${t.date ? ' · ' + fmtD(t.date) + ' ' + t.date.slice(0, 4) : ''}</div>
+    <div class="cv-lifts">${lift(t.rpv, 'Revenue / visitor')}${lift(t.cvr, 'Conversion')}${lift(t.aov, 'AOV')}</div></summary>
+    ${t.hyp ? `<div class="cv-tx"><b>Hypothesis</b> ${esc(t.hyp)}</div>` : ''}${t.res ? `<div class="cv-tx"><b>Result</b> ${esc(t.res)}</div>` : ''}</details>`;
+  const sumW = won.filter(t => t.rpv != null).reduce((a, t) => a + t.rpv, 0);
+  h += `<h2 class="sec">A/B tests <small>from the Notion A/B Test roadmap</small></h2>
+    <div class="grid kpis">${kp('Tests with a result', int(done.length), `${won.length} winners · ${lost.length} losers or control kept · ${done.length - won.length - lost.length} no difference`)}
+      ${kp('Win rate', done.length ? pct(won.length / done.length, 0) : '–', 'a loser found is a test that saved money too')}
+      ${kp('Shipped winners, summed', '+' + sumW.toFixed(0) + '%', 'revenue per visitor lifts of the winners, added up (lifts overlap, so not a forecast)', 'good')}
+      ${kp('Live now', int(live.length), live.map(t => esc(t.id)).join(' · ') || 'none')}${kp('In the queue', int(queue.length), 'ideas, in design, ready for dev or ready to launch')}</div>
+    <div class="tabs" id="cvTs" style="margin-top:14px">${[['done', `Results (${done.length})`], ['live', `Live (${live.length})`], ['queue', `Queue (${queue.length})`]].map(([v, l]) => `<button data-v="${v}" class="${CV.tst === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="cv-tests">${(CV.tst === 'live' ? live : CV.tst === 'queue' ? queue : done.slice().sort((x, y) => (y.date || '') < (x.date || '') ? -1 : 1)).map(tcard).join('') || '<div class="empty">Nothing here.</div>'}</div>`;
+
+  // ---------- Clarity
+  const cl = X.clarity || {}, has = Object.keys(cl).filter(st => cl[st] && cl[st].hist && Object.keys(cl[st].hist).length);
+  h += `<h2 class="sec">Microsoft Clarity <small>rage clicks, dead clicks, scroll depth per page</small></h2>`;
+  if (has.length) {
+    const agg = new Map(); for (const st of has.filter(s => mk.includes(s))) for (const pages of Object.values(cl[st].hist)) for (const [p, m] of Object.entries(pages)) { const x = agg.get(p) || {}; for (const [f, v] of Object.entries(m)) x[f] = (x[f] || 0) + v; agg.set(p, x); }
+    const g = (x, re) => { const kk = Object.keys(x).find(f => re.test(f)); return kk ? x[kk] : null; };
+    const cr = [...agg.entries()].map(([p, x]) => ({p, ses:g(x, /^Traffic\.totalSessionCount/i) || g(x, /^Traffic\./i) || 0, rage:g(x, /^RageClickCount\.sessionsWithMetricPercentage/i), dead:g(x, /^DeadClickCount\.sessionsWithMetricPercentage/i), scroll:g(x, /^ScrollDepth\.averageScrollDepth/i)}))
+      .filter(x => x.ses >= 30).sort((x, y) => y.ses - x.ses).slice(0, 25);
+    h += `<div class="tbl-wrap"><table><thead><tr><th class="l">Page</th><th>Sessions</th><th>Rage clicks</th><th>Dead clicks</th><th>Scroll depth</th></tr></thead><tbody>${cr.map(x => `<tr><td class="l">${esc(cvName(x.p))}</td><td class="num">${int(x.ses)}</td><td class="num">${x.rage != null ? x.rage.toFixed(1) + '%' : '–'}</td><td class="num">${x.dead != null ? x.dead.toFixed(1) + '%' : '–'}</td><td class="num">${x.scroll != null ? x.scroll.toFixed(0) + '%' : '–'}</td></tr>`).join('')}</tbody></table></div>`;
+  } else h += `<div class="card cv-cl"><b>Not connected yet.</b> Clarity runs on AU, CA, DE and NL. It is not installed on US or UK, the two biggest stores. Once each project's API token is added, this section shows rage clicks, dead clicks and scroll depth per page next to the conversion numbers above (the Clarity API only gives the last days, so the history builds up from the day the token is added).</div>`;
+  h += `<div class="note">Sessions, orders and revenue come from the Triple Whale pixel, grouped by the page a visit started on (not the last page seen), so a product page here means visits that landed on it. Orders are counted on the session they happened in. A/B test lifts are read from the Results written in Notion; open a test to see the full write-up.</div>`;
+  afterRender.push(() => {
+    const t = $('#cvT'); if (t) t.onclick = e => { const b = e.target.closest('button'); if (!b) return; CV.type = b.dataset.v; CV.all = false; render(); };
+    const ts = $('#cvTs'); if (ts) ts.onclick = e => { const b = e.target.closest('button'); if (!b) return; CV.tst = b.dataset.v; render(); };
+    const a = $('#cvAll'); if (a) a.onclick = () => { CV.all = true; render(); };
+  });
+  return h;
+}
+function page_type(p) { return p === '/' ? 'Home' : p.startsWith('/pages/') ? 'Landing page' : p.startsWith('/products/') ? 'Product page' : p.startsWith('/collections/') ? 'Offer / collection' : 'Other'; }
 
 /* ---------------- drawer ---------------- */
 function openConcept(key, onlyStore) {
