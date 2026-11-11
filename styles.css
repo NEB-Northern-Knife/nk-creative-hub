@@ -728,3 +728,5 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 .bn-led{font-size:12px;color:var(--muted);margin-top:8px}.bn-led b{color:var(--text)}
 .bn-all{margin-top:8px;font-size:12.5px}.bn-all summary{cursor:pointer;color:var(--gold)}.bn-all table{font-size:12px}
 @media (max-width:700px){.bn-ev .bn-a{margin-left:0;width:100%}}
+.bn-kpi{cursor:pointer;border:1px solid #c7b48b55!important;border-radius:10px;background:#c7b48b10}.bn-kpi:hover{border-color:var(--gold)!important}
+.rs-team .bn-kpi{padding:6px 10px}.bn-ed{border-top:1px solid var(--line);padding:10px 0}.bn-eh{display:flex;justify-content:space-between;font-size:15px;margin-bottom:4px}
