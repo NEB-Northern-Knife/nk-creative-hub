@@ -711,3 +711,20 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 @media (max-width:1000px){.cv-types{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:700px){.cv-ins{grid-template-columns:1fr}}
 .cb-card,.cb-row{min-width:0}.cb-meta .pill{white-space:normal}.cb-cards{grid-template-columns:repeat(auto-fill,minmax(min(320px,100%),1fr))}
+.hfill{margin:10px 0 0;padding:10px 14px;border:1px solid #c7b48b55;border-left:3px solid var(--gold);border-radius:10px;background:#c7b48b10;font-size:12.5px;color:var(--text2);line-height:1.5}.hfill b{color:var(--text)}
+/* editor bonus (Andy 2026-11-11, owner only) */
+.bn-top{padding:18px;margin:0 0 16px;border-color:#c7b48b55}
+.bn-th{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:flex-start}
+.bn-ms{flex-wrap:wrap}
+.bn-k{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:14px 0}
+.bn-k>div{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.bn-k span{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.bn-k b{display:block;font-size:22px;margin:2px 0}.bn-k em{font-style:normal;font-size:11.5px;color:var(--muted)}
+.gold{color:var(--gold)}
+.bn-card{margin:12px 0 4px;padding:12px 14px;border:1px solid #c7b48b44;border-radius:12px;background:linear-gradient(160deg,#c7b48b12,transparent 70%)}
+.bn-ch{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.bn-ch .vk{color:var(--gold);font-size:15px;letter-spacing:.04em}.bn-ch b{font-size:20px}.bn-ch em{font-style:normal;font-size:12px;color:var(--muted)}
+.bn-ev{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12.5px;padding:6px 0;border-top:1px solid var(--line)}
+.bn-ev .bn-w{color:var(--text2)}.bn-ev .bn-a{margin-left:auto;font-weight:600;color:var(--good,#52b788)}.bn-ev i{font-style:normal;font-weight:400}
+.bn-led{font-size:12px;color:var(--muted);margin-top:8px}.bn-led b{color:var(--text)}
+.bn-all{margin-top:8px;font-size:12.5px}.bn-all summary{cursor:pointer;color:var(--gold)}.bn-all table{font-size:12px}
+@media (max-width:700px){.bn-ev .bn-a{margin-left:0;width:100%}}
