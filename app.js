@@ -14,7 +14,7 @@ let ACCESS = null; // 'editor' | 'strategist' | 'owner' (Andy, 2026-11-09: acces
 let REV = false;  // store revenue / spend / paid totals (strategist, owner)
 let UNL = false;  // net profit / orders / AOV / CPA (owner)
 let HL = null;    // business health (owner ONLY, Andy 2026-11-10): its key exists only in the owner entry
-const ROLE_NAME = {editor:'Editor & designer', strategist:'Strategist', owner:'Owner'};
+const ROLE_NAME = {editor:'Editor & designer', editorlead:'Lead editor', strategist:'Strategist', owner:'Owner'};
 const b64 = x => Uint8Array.from(atob(x), ch => ch.charCodeAt(0));
 const gunzip = async buf => new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
 async function openBox(rawKey, bytes) {
@@ -43,7 +43,7 @@ async function login(pw) {
   if (bd.v !== 2) throw new Error('old data format');
   D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
-const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['strategist','owner'], health:['owner']};
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','strategist','owner'], health:['owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev'};
 const charts = {};
