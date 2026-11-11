@@ -753,6 +753,26 @@ function bonusWhy(c, mi) {
   return out.join(' · ');
 }
 
+const nextMonth = m => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + 1); return iso(d).slice(0, 7); };
+function openBonus(who, month) {
+  const B = HL && HL.bonus; if (!B) return;
+  const ms = B.months, m = month && ms.includes(month) ? month : ms[ms.length - 1], mi = ms.indexOf(m);
+  const monL = x => P(x + '-01').toLocaleDateString('en-GB', {month:'long', year:'numeric', timeZone:'UTC'});
+  const names = (who ? [who] : Object.keys(B.editors)).filter(n => B.editors[n]);
+  const per = names.map(n => { const rows = B.editors[n].map(c => ({c, ...bonusOf(c, mi)})).filter(r => r.earned > 0);
+    return {n, rows, sum:rows.reduce((x, r) => x + r.earned, 0), oldE:rows.reduce((x, r) => x + r.oldE, 0), extra:rows.reduce((x, r) => x + r.extra, 0)}; }).filter(x => x.sum).sort((x, y) => y.sum - x.sum);
+  const tot = per.reduce((x, y) => x + y.sum, 0), oldT = per.reduce((x, y) => x + y.oldE, 0), live = mi === ms.length - 1;
+  $('#drawer').innerHTML = `<button class="close" id="dClose">✕</button><div class="dr-body bn-dr">
+    <div class="kicker">Owner only · editor bonus${who ? ' · ' + esc(who) : ''}</div><h2>${money(tot)} <small class="muted" style="font-size:14px;font-weight:400">earned in ${monL(m)}${live ? ' so far' : ''}, paid early ${monL(nextMonth(m))}</small></h2>
+    <div class="tabs-mini" id="bnM" style="margin:10px 0">${ms.slice(-6).map(x => `<button data-v="${x}" class="${x === m ? 'on' : ''}">${MON(x)}</button>`).join('')}</div>
+    ${tot && tot - oldT ? `<div class="muted" style="font-size:12.5px;margin-bottom:8px">${oldT ? money(oldT) + ' under the old rules too · ' : 'All of it '}<span class="gold">${oldT ? money(tot - oldT) + ' only' : 'only'} because of the new rules</span></div>` : ''}
+    ${per.length ? per.map(x => `<div class="bn-ed"><div class="bn-eh"><b>${esc(x.n)}</b><span class="g-money">${money(x.sum)}</span></div>
+      ${x.rows.map(r => `<div class="bn-ev"><b>${esc(r.c.cid)}</b> <span class="muted">${esc(r.c.title)}</span><span class="bn-w">${esc(bonusWhy(r.c, mi))} · ${money(r.r[1])} spend</span><span class="bn-a">+${money(r.earned)}${r.extra ? ' <i class="gold">new rules</i>' : ''}</span></div>`).join('')}</div>`).join('')
+      : `<div class="empty">No creative reached a new tier in ${monL(m)}${who ? ' for ' + esc(who) : ''}.</div>`}
+    <div class="note">ROAS 1.9 in First Click or Triple Attribution, lifetime, US + UK + AU in USD. Tiers: $8k $50 · $15k $100 · $30k $175 · $50k $250 · $75k $300 · $125k $400 · $200k $450. A creative earns in a month what its tier gained that month (a climb pays the difference). Bonuses up to last month are paid.</div></div>`;
+  $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').scrollTop = 0; $('#dClose').onclick = closeDrawer;
+  $('#bnM').onclick = ev => { const bt = ev.target.closest('button'); if (bt) openBonus(who, bt.dataset.v); };
+}
 function pReports() {
   const [a, b] = R(), mk = minK();
   let h = head('One card per editor', 'Editor reports');
@@ -810,31 +830,11 @@ function pReports() {
   const mini = c => `<div class="rs-ad" data-c="${esc(c.key)}"><div class="t" style="background-image:url('${esc(c.thumb || '')}')"></div><div><div class="i">${esc(c.id || '')}${c.product ? ' · ' + esc(c.product) : ''}</div><div class="n">${esc(c.title)}</div><div class="m"><b class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</b> · ${money(c.sp)}</div></div></div>`;
   h += `<div class="note" style="margin:-8px 0 16px">Performance uses the selected dates and market (${MODELS[S.model]}). Hit = a concept with $1k+ spend beating the editors' average ROAS (${x2(teamBm)}). Win rate = share of 2026 concepts (launched 14+ days ago) that reached $10k spend. Videos delivered come from the CREATIVES sheet; editing now = Notion Evergreen Video + German Creatives 🇩🇪 board. For win and hit rates, Last 30 days or This year reads best.</div>`;
   h += `<div class="chart-top" style="margin:0 0 12px"><span class="muted" style="font-size:12px">Videos edited, counted per</span><div class="tabs-mini" id="rsg">${[['week','Week'],['month','Month'],['year','Year']].map(([v, l]) => `<button data-v="${v}" class="${rg === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
-  h += `<div class="rs-team card"><div><span>Videos edited / editor</span><b>${team.inRange.toFixed(1)}</b><em class="muted" style="font-size:11px">in these dates</em></div>`; h += `<div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
+  const BB = HL && HL.bonus, bmsL = BB ? BB.months.length - 1 : -1;
+  const bnRun = n => ((BB && BB.editors[n]) || []).reduce((x, c) => x + bonusOf(c, bmsL).earned, 0);
+  const bnTot = BB ? Object.keys(BB.editors).reduce((x, n) => x + bnRun(n), 0) : 0;
+  h += `<div class="rs-team card">${BB ? `<div class="bn-kpi" data-bonus="" title="Open the bonus details"><span>Bonus to pay early ${MON(nextMonth(D.today.slice(0, 7)))}</span><b class="g-money">${money(bnTot)}</b><em class="muted" style="font-size:11px">earned in ${MON(D.today.slice(0, 7))} so far · details ›</em></div>` : ''}<div><span>Videos edited / editor</span><b>${team.inRange.toFixed(1)}</b><em class="muted" style="font-size:11px">in these dates</em></div>`; h += `<div><span>Editors' average</span><b class="${rc(teamBm)}">${x2(teamBm)} ROAS</b></div><div><span>Hit rate</span><b>${pct(rate(team.hit), 0)}</b></div><div><span>Win rate 2026</span><b>${pct(rate(team.win), 0)}</b></div>
     <div><span>Hook · Hold</span><b>${pct(team.agg.hook, 0)} · ${pct(team.agg.hold, 0)}</b></div><div><span>Spend per concept</span><b>${money(team.spc)}</b></div><div><span>Videos / editor / week</span><b>${team.perWeek.toFixed(1)}</b></div><div><span>Editing now</span><b>${team.prod}</b><em class="muted" style="font-size:11px">${team.prod - team.prodDE} EN · ${team.prodDE} 🇩🇪 · ${team.prodPer.toFixed(1)} / editor</em></div></div>`;
-  const BB = HL && HL.bonus, bms = BB ? BB.months : [];
-  if (BB) { if (!BN.m || !bms.includes(BN.m)) BN.m = bms.length > 1 ? bms[bms.length - 2] : bms[0]; }
-  const bmi = BB ? bms.indexOf(BN.m) : -1, nextM = m => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + 1); return iso(d).slice(0, 7); };
-  const monL = m => P(m + '-01').toLocaleDateString('en-GB', {month:'long', year:'numeric', timeZone:'UTC'});
-  const edB = n => { const cs = (BB && BB.editors[n]) || []; const rows = cs.map(c => ({c, ...bonusOf(c, bmi)}));
-    return {cs, rows, earned:rows.reduce((x, r) => x + r.earned, 0), oldE:rows.reduce((x, r) => x + r.oldE, 0), extra:rows.reduce((x, r) => x + r.extra, 0),
-      left:cs.reduce((x, c) => x + Math.max(0, bonusOf(c, bms.length - 1).ent - paidOf(c)), 0), paid:cs.reduce((x, c) => x + paidOf(c), 0), entNow:cs.reduce((x, c) => x + bonusOf(c, bms.length - 1).ent, 0)}; };
-  if (BB) {
-    const all2 = Object.keys(BB.editors).map(n => ({n, ...edB(n)})).filter(x => x.earned || x.paid || x.entNow).sort((x, y) => y.earned - x.earned || y.entNow - x.entNow);
-    const T2 = all2.reduce((x, y) => ({earned:x.earned + y.earned, oldE:x.oldE + y.oldE, extra:x.extra + y.extra, paid:x.paid + y.paid, left:x.left + y.left, ent:x.ent + y.entNow}), {earned:0, oldE:0, extra:0, paid:0, left:0, ent:0});
-    const live = bms.indexOf(BN.m) === bms.length - 1;
-    h += `<div class="card bn-top"><div class="bn-th"><div><div class="kicker" style="color:var(--gold)">Owner only · editor bonus</div><h2 class="vk" style="margin:2px 0 0">Monthly bonus</h2>
-        <div class="muted" style="font-size:12px">ROAS 1.9 in First Click or Triple Attribution · lifetime, US + UK + AU · paid at the start of each month for the month before</div></div>
-      <div class="tabs-mini bn-ms" id="bnM">${bms.slice(-6).map(m => `<button data-v="${m}" class="${BN.m === m ? 'on' : ''}">${MON(m)}${m === bms[bms.length - 1] ? ' (running)' : ''}</button>`).join('')}</div></div>
-      <div class="bn-k"><div><span>Earned in ${monL(BN.m)}</span><b class="g-money">${money(T2.earned)}</b><em>${live ? 'month still running, ' : ''}paid early ${monL(nextM(BN.m))}</em></div>
-        <div><span>Under the old rules</span><b>${money(T2.oldE)}</b><em>ROAS 2.0 First Click, grid to $75k</em></div>
-        <div><span>Extra from the new rules</span><b class="gold">${money(T2.extra)}</b><em>1.9 ROAS, Triple Attribution, $125k and $200k tiers</em></div>
-        <div><span>Paid so far</span><b>${money(T2.paid)}</b><em>everything to the end of ${monL(bms[bnPaidIdx()] || bms[0])}, catch-up included</em></div>
-        <div><span>Entitled to date, new rules</span><b>${money(T2.ent)}</b><em>${T2.left > 0 ? money(T2.left) + ' to pay early ' + monL(nextM(bms[bms.length - 1])) : 'nothing left to pay'}</em></div></div>
-      <div class="tbl-wrap"><table><thead><tr><th class="l">Editor</th><th>Earned in ${MON(BN.m)}</th><th>Old rules</th><th>New rules extra</th><th>Paid so far</th><th>Entitled to date</th><th>Left to pay</th></tr></thead><tbody>
-      ${all2.map(x => `<tr><td class="l"><b>${esc(x.n)}</b></td><td class="num"><b>${x.earned ? money(x.earned) : '–'}</b></td><td class="num">${x.oldE ? money(x.oldE) : '–'}</td><td class="num gold">${x.extra ? money(x.extra) : '–'}</td><td class="num">${x.paid ? money(x.paid) : '–'}</td><td class="num">${money(x.entNow)}</td><td class="num ${x.left > 0 ? 'up' : ''}">${x.left > 0 ? money(x.left) : '–'}</td></tr>`).join('')}</tbody></table></div>
-      <div class="note">All bonuses up to the end of ${monL(bms[bnPaidIdx()] || bms[0])} are paid, catch-up from the new rules included. "Left to pay" is what the running month has earned so far, paid at the start of next month. Ads paid before that no longer qualify keep what they were paid (never clawed back). US ad account act_1771 (lost by Triple Whale, Jan to 6 Aug) counts with its frozen First Click numbers.</div></div>`;
-  }
   h += '<div class="rs-grid">' + eds.map((e, idx) => {
     const tested = e.cs.filter(c => c.usd >= mk).length >= 2 ? e.cs.filter(c => c.usd >= mk) : e.cs.filter(c => c.sp > 0);
     const byR = tested.slice().sort((x, y) => y.r[S.model] - x.r[S.model]);
@@ -850,6 +850,7 @@ function pReports() {
         <div class="rs-rank">#${idx + 1}<span>by spend</span></div></div>
       <div class="rs-stats">
         ${stat('Editing now', e.prod, chip(e.prod, team.prodPer), `${e.prodEN} English · ${e.prodDE} German 🇩🇪`)}
+        ${BB ? `<div class="rs-s bn-kpi" data-bonus="${esc(e.n)}" title="Open the bonus details"><span>Bonus ${MON(D.today.slice(0, 7))}</span><b class="g-money">${money(bnRun(e.n))}</b><em>paid early ${MON(nextMonth(D.today.slice(0, 7)))} · details ›</em></div>` : ''}
         ${stat('Spend', money(e.a.sp), chip(e.cs.length ? e.a.sp / e.cs.length : null, team.spc), 'per concept: ' + money(e.cs.length ? e.a.sp / e.cs.length : 0))}
         ${stat(MODELS[S.model] + ' ROAS', `<span class="${rc(e.a.roas)}">${x2(e.a.roas)}</span>`, chip(e.a.roas, teamBm), money(e.a.rev) + ' revenue')}
         ${stat('Hit rate', pct(rate(e.hit), 0), chip(rate(e.hit), rate(team.hit), 'pt'), `${e.hit.hits} of ${e.hit.tested} with $1k+ spend`)}
@@ -864,13 +865,6 @@ function pReports() {
           ${e.mix.total ? `<div class="ratio"><div class="rb">${CATS.map(([n, col]) => `<i style="width:${(share(e.mix, n) * 100).toFixed(1)}%;background:${col}"></i>`).join('')}</div><div class="rl">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n} <b>${pct(share(e.mix, n), 0)}</b> (${e.mix[n]})</span>`).join('')}</div></div>` : '<div class="muted" style="font-size:12px">None delivered in these dates</div>'}</div>
         <div><div class="rs-h">By product <small>in these dates</small></div>${pl.length ? '<div class="rs-p rs-ph"><span></span><em>edited</em><em>ads live</em><span></span><em>spend</em><em>ROAS</em></div>' + pl.map(([p, o]) => `<div class="rs-p"><span title="${esc(p)}">${esc(p)}</span><b>${o.ed}</b><b>${o.n}</b><div class="bar"><i style="width:${(o.sp / pmax * 100).toFixed(0)}%"></i></div><b>${o.sp ? money(o.sp) : '–'}</b><b class="${o.sp ? rc(o.rev / o.sp) : ''}">${o.sp ? x2(o.rev / o.sp) : '–'}</b></div>`).join('') : '<div class="muted" style="font-size:12px">Nothing edited or live in these dates</div>'}</div>
       </div>
-      ${BB ? (() => { const x = edB(e.n), ev = x.rows.filter(r => r.earned > 0), q = x.cs.map(c => ({c, ...bonusOf(c, bms.length - 1)})).filter(r => r.ent || paidOf(r.c));
-        return `<div class="bn-card"><div class="bn-ch"><span class="vk">Bonus · ${monL(BN.m)}</span><b class="g-money">${money(x.earned)}</b><em>paid early ${monL(nextM(BN.m))}${x.extra ? ` · ${x.oldE ? money(x.oldE) + ' old rules + ' : ''}<span class="gold">${money(x.extra)} from the new rules</span>` : ''}</em></div>
-          ${ev.length ? ev.map(r => `<div class="bn-ev"><b>${esc(r.c.cid)}</b> <span class="muted">${esc(r.c.title)}</span><span class="bn-w">${esc(bonusWhy(r.c, bmi))}</span><span class="bn-a">+${money(r.earned)}${r.extra ? `<i class="gold"> (${r.oldE ? money(r.oldE) + ' old + ' : ''}${money(r.extra)} new rules)</i>` : ''}</span></div>`).join('') : `<div class="muted" style="font-size:12px">No creative reached a new tier in ${monL(BN.m)}.</div>`}
-          <div class="bn-led">Paid so far <b>${money(x.paid)}</b> · entitled to date <b>${money(x.entNow)}</b>${x.left > 0 ? ` · <span class="up">${money(x.left)} left to pay</span>` : ''}</div>
-          ${q.length ? `<details class="bn-all"${BN.open[e.n] ? ' open' : ''} data-bn="${esc(e.n)}"><summary>Every bonus creative (${q.length})</summary><div class="tbl-wrap"><table><thead><tr><th class="l">Creative</th><th>Spend</th><th>First Click</th><th>Triple Attr.</th><th>Tier now</th><th>Entitled</th><th>Paid</th><th>Left</th></tr></thead><tbody>
-            ${q.sort((p1, p2) => p2.r[1] - p1.r[1]).map(r => `<tr><td class="l"><b>${esc(r.c.cid)}</b> <span class="muted">${esc(r.c.title)}</span>${r.ent > r.entOld ? ' <span class="pill gold" title="qualifies or pays more only with the new rules">new rules</span>' : ''}</td><td class="num">${money(r.r[1])}</td>
-              <td class="num ${r.r[2] >= BB.roasMin ? 'up' : 'down'}">${r.r[2].toFixed(2)}</td><td class="num ${r.r[3] >= BB.roasMin ? 'up' : 'down'}">${r.r[3].toFixed(2)}</td><td class="num">${r.r[4] || '–'}</td><td class="num">${r.ent ? money(r.ent) : '–'}</td><td class="num">${paidOf(r.c) ? money(paidOf(r.c)) : '–'}</td><td class="num ${r.ent - paidOf(r.c) > 0 ? 'up' : ''}">${r.ent - paidOf(r.c) > 0 ? money(r.ent - paidOf(r.c)) : '–'}</td></tr>`).join('')}</tbody></table></div></details>` : ''}</div>`; })() : ''}
       <div class="rs-row">
         <div><div class="rs-h">Best ads <small>highest ${MODELS[S.model]} ROAS</small></div>${best.map(mini).join('') || '<div class="muted" style="font-size:12px">No ads with spend</div>'}</div>
         <div><div class="rs-h">Worst ads <small>lowest ROAS</small></div>${worst.map(mini).join('') || '<div class="muted" style="font-size:12px">Not enough ads to compare</div>'}</div>
@@ -878,8 +872,7 @@ function pReports() {
   }).join('') + '</div>';
   if (!eds.length) h += '<div class="empty">No editor activity in these dates.</div>';
   afterRender.push(() => { const t = $('#rsg'); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S.rsg = bt.dataset.v; render(); } }; });
-  afterRender.push(() => { const m = $('#bnM'); if (m) m.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { BN.m = bt.dataset.v; render(); } };
-    document.querySelectorAll('details[data-bn]').forEach(d => d.ontoggle = () => { BN.open[d.dataset.bn] = d.open; }); });
+  afterRender.push(() => document.querySelectorAll('[data-bonus]').forEach(el => el.onclick = () => openBonus(el.dataset.bonus)));
   afterRender.push(() => eds.forEach((e, idx) => {
     charts['rs' + idx] = new Chart($('#rsW' + idx), {type:'bar', data:{labels:bks.map(x => x.label), datasets:[
       {type:'line', label:'Team average', data:team.bk.map(x => +x.toFixed(1)), borderColor:'#8a8a94', borderDash:[4, 4], borderWidth:1.5, pointRadius:rg === 'year' ? 3 : 0},
