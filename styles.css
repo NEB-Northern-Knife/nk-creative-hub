@@ -630,3 +630,60 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 .cb-toast.on{opacity:1;transform:translate(-50%,0)}
 @media (max-width:1100px){.cb-bar{grid-template-columns:repeat(3,minmax(0,1fr))}.cb-bar input[type=search]{grid-column:1/-1}}
 @media (max-width:600px){.cb-bar{grid-template-columns:repeat(2,minmax(0,1fr));position:static}.cb-row{grid-template-columns:1fr}.cb-row .cb-btn{grid-row:auto;grid-column:auto;justify-self:start}.cb-cards{grid-template-columns:1fr}}
+
+/* ---------- phone layout (Andy 2026-11-11): one chart per row, compact 2-up numbers, swipe rows ---------- */
+@media (max-width:900px){ #side{z-index:35} }
+@media (max-width:700px){
+  main{padding:14px 12px 60px}
+  .topbar{margin:-14px -12px 14px}
+  .page-head{margin-bottom:14px}
+  .page-head h1{font-size:30px}
+  .page-head .meta{text-align:left}
+  h2.sec{font-size:21px;margin:24px 0 10px;flex-wrap:wrap}
+  .card{padding:13px 14px}
+  #view .grid.charts,#view .grid.charts3,#view .grid:has(.chart-wrap){grid-template-columns:minmax(0,1fr)!important}
+  #view .grid.kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px}
+  #view .grid.kpis>.card{padding:11px 12px}
+  #view .kpi .lbl{font-size:9.5px;letter-spacing:.08em}
+  #view .kpi .val{font-size:21px!important;margin-top:5px}
+  #view .kpi .delta,#view .kpi .note{font-size:11px}
+  #view .grid[style*="repeat(4,1fr)"]{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .chart-wrap{height:210px}
+  .ch-top{gap:8px}
+  .ch-r{flex-wrap:wrap;gap:8px}
+  .ch-stat{flex-wrap:wrap;gap:10px 14px;text-align:left}
+  .htabs,.tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .htabs::-webkit-scrollbar,.tabs::-webkit-scrollbar{display:none}
+  .htabs button,.tabs button{white-space:nowrap;flex:none}
+  .htabs button{padding:10px 11px}
+  .champs{display:flex!important;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px;margin:0 -12px;padding:0 12px 8px;scrollbar-width:none}
+  .champs::-webkit-scrollbar{display:none}
+  .champs>*{flex:0 0 80%;scroll-snap-align:start}
+  .hbar{gap:8px;padding:10px}
+  .hbar .hsep{display:none}
+  table{font-size:12px} th,td{padding:8px 9px}
+  .toolbar select,.toolbar input{min-width:0;flex:1 1 140px}
+  .gallery{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px}
+  .cr .body{padding:10px}
+  .roas3 b{font-size:13px}
+  .strip{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #drawer{width:100%}
+}
+
+/* copy bank search (Andy 2026-11-11: make it obvious you can search what the copy is for) */
+.cb-search{background:linear-gradient(160deg,#c7b48b14,var(--panel) 70%);border:1px solid #c7b48b55;border-radius:14px;padding:16px;margin-bottom:12px}
+.cb-search label{display:block;font-family:var(--display);font-size:22px;letter-spacing:.05em;color:var(--gold);margin-bottom:8px}
+.cb-sbox{position:relative}
+.cb-sbox svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:20px;height:20px;stroke:var(--gold);fill:none;stroke-width:2}
+.cb-sbox input[type=search]{width:100%;padding:15px 14px 15px 44px;font-size:16px;border-radius:12px;border:1px solid var(--gold2);background:var(--panel2)}
+.cb-sbox input[type=search]:focus{outline:2px solid #c7b48b66}
+.cb-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.cb-chip{background:var(--panel2);border:1px solid var(--line2);color:var(--text2);border-radius:99px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+.cb-chip:hover{border-color:var(--gold2);color:var(--gold)}.cb-chip.on{background:var(--gold);color:#16130b;border-color:var(--gold)}
+.cb-hint{font-size:12px;color:var(--muted);margin-top:8px}
+@media (min-width:1101px){.cb-bar{grid-template-columns:repeat(6,minmax(0,1fr)) auto}}
+@media (max-width:700px){.cb-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.cb-chip{flex:none}}
+
+/* static detail: the image full width, data below (Andy 2026-11-11) */
+.dr-big{display:block;width:100%;max-height:78vh;object-fit:contain;border-radius:12px;background:#000;border:1px solid var(--line)}
+.cmp-btn b{color:var(--gold);font-weight:600;margin-left:2px}
