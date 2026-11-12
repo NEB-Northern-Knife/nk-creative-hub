@@ -44,7 +44,8 @@ async function login(pw) {
     (ow.pkpi || []).forEach((dy, i) => { for (const [st, q] of Object.entries(dy)) if (bd.pkpi[i] && bd.pkpi[i][st]) bd.pkpi[i][st] = bd.pkpi[i][st].concat(q); });
   }
   if (bd.v !== 2) throw new Error('old data format');
-  D = bd; PR = bd.production || null; ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
+  D = bd; PR = bd.production || null; if (PR && PR.trybe && !PR._tb) { PR.videos = PR.videos.concat(PR.trybe); PR._tb = 1; } // Andy 2026-11-12: every Trybe creator video is in the list
+  ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
 const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['owner'], health:['owner'], conv:['strategist','owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
@@ -1373,7 +1374,7 @@ function staticsIn(a, b, g) {
   for (const x of PR.statics || []) for (const it of x.items) if (it.d && it.d >= a && it.d <= b && !seen.has(it.id)) { seen.add(it.id); out.push(it); }
   return out;
 }
-const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; } return o; };
+const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0, trybe:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; if (v.src === 'trybe') o.trybe++; } return o; };
 const share = (o, kk) => o.total ? o[kk] / o.total : 0;
 const mix = o => `<span style="color:#d9b45a">${pct(share(o, 'Net New'), 0)} NN</span> · <span style="color:#7fb2e8">${pct(share(o, 'Iteration'), 0)} Ite</span> · <span style="color:#ff8a80">${pct(share(o, 'Adaptation'), 0)} Adapt</span>`;
 function pProduction() {
@@ -1396,7 +1397,7 @@ function pProduction() {
   const kp = (lbl, val, d, sub = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="delta">${d}</div>${sub ? `<div class="delta" style="margin-top:6px">${sub}</div>` : ''}</div>`;
   h += `<div class="note" style="margin:-8px 0 14px">Showing <b style="color:var(--text)">${g === 'month' ? 'months' : 'weeks'}</b>: ${esc(label)}. Pick a week preset for weekly numbers, a month preset for monthly numbers.</div>
   <div class="grid kpis hero">
-    ${kp('Videos delivered', int(c.total), delta(cNow.total, cp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">${int(c.hooks)} files with hooks</span>`)}
+    ${kp('Videos delivered', int(c.total), delta(cNow.total, cp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">${int(c.total - c.trybe)} team · <b style="color:var(--text)">${int(c.trybe)}</b> Trybe creators · ${int(c.hooks)} files with hooks</span>`)}
     ${kp('Video mix', `${pct(share(c, 'Net New'), 0)} <span class="muted" style="font-size:16px">net new</span>`, mix(c), `<span class="muted">${c['Net New']} NN · ${c.Iteration} Ite · ${c.Adaptation} Adapt</span>`)}
     ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
     ${kp('Concepts tested', int(t.total), delta(tNow.total, tp.total), `<span class="muted">videos + statics · ${pct(share(t, 'Net New'), 0)} net new</span>`)}
@@ -1415,7 +1416,7 @@ function pProduction() {
     <div class="tabs-mini" id="pmode">${[['n','Count'],['p','% mix']].map(([v, l]) => `<button data-v="${v}" class="${(S.pmode || 'n') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
   <div class="grid charts3" style="margin-top:10px">
     <div class="card chart-card"><h3>Total concepts</h3><div class="sub">videos + statics</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chT"></canvas></div></div>
-    <div class="card chart-card"><h3>Videos</h3><div class="sub">CREATIVES sheet · ${g === 'month' ? 'month section' : 'date sent'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chV"></canvas></div></div>
+    <div class="card chart-card"><h3>Videos</h3><div class="sub">CREATIVES sheet + Trybe · ${g === 'month' ? 'month section' : 'date sent'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chV"></canvas></div></div>
     <div class="card chart-card"><h3>Statics</h3><div class="sub">Figma · ${g === 'month' ? 'Approved + Tested + Winners on each month page' : 'by the date in the ad name'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chS"></canvas></div></div>
   </div>`;
   let buckets;
@@ -1430,7 +1431,7 @@ function pProduction() {
   </div>`;
   const eds = {}, vv = vidsIn(a, b, g);
   const blank = () => ({n:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0, prod:0, prodDE:0, total:0});
-  for (const v of vv) { const o = eds[v.editor || 'Unknown'] || (eds[v.editor || 'Unknown'] = blank()); o.n++; o.total++; o.hooks += v.hooks || 0; if (o[v.cat] !== undefined) o[v.cat]++; }
+  for (const v of vv) { const en = v.src === 'trybe' ? 'Trybe creators' : (v.editor || 'Unknown'); const o = eds[en] || (eds[en] = blank()); o.n++; o.total++; o.hooks += v.hooks || 0; if (o[v.cat] !== undefined) o[v.cat]++; }
   for (const r of inprod) { const o = eds[r.editor || 'Unassigned'] || (eds[r.editor || 'Unassigned'] = blank()); o.prod += r.n; if (r.mk === 'DE') o.prodDE += r.n; }
   const des = {};
   for (const it of staticsIn(a, b, g)) { const o = des[it.designer] || (des[it.designer] = blank()); o.n++; o.total++; o[it.cat]++; }
@@ -1441,7 +1442,7 @@ function pProduction() {
     <div><h2 class="sec">By designer <small>${esc(label)}</small></h2><div class="tbl-wrap"><table><thead><tr><th>Designer</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>
       ${Object.entries(des).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => pplRow(n, o, false)).join('') || '<tr><td colspan="5" class="muted">No statics in these dates</td></tr>'}</tbody></table></div></div>
   </div>
-  <div class="note">Videos: CREATIVES sheet. Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. Editing now: Notion Evergreen Video (Assigned to Editor, Ready for visuals) + German Creatives 🇩🇪 board (Edit not yet received). Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
+  <div class="note">Videos: CREATIVES sheet + every Trybe creator video (date submitted, all review statuses${PR.trybe_at ? ', synced ' + esc(PR.trybe_at.slice(0, 10)) : ''}). Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. Editing now: Notion Evergreen Video (Assigned to Editor, Ready for visuals) + German Creatives 🇩🇪 board (Edit not yet received). Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
   afterRender.push(() => {
     $('#pmode').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.pmode = bt.dataset.v; render(); } };
     const pc = (S.pmode || 'n') === 'p';
