@@ -1374,7 +1374,10 @@ function staticsIn(a, b, g) {
   for (const x of PR.statics || []) for (const it of x.items) if (it.d && it.d >= a && it.d <= b && !seen.has(it.id)) { seen.add(it.id); out.push(it); }
   return out;
 }
-const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0, trybe:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; if (v.src === 'trybe') o.trybe++; } return o; };
+const cnt = arr => { const o = {'Net New':0, Iteration:0, Adaptation:0, total:arr.length, hooks:0, trybe:0, approved:0, pending:0, revision_requested:0, rejected:0}; for (const v of arr) { if (o[v.cat] !== undefined) o[v.cat]++; o.hooks += v.hooks || 0; if (v.src === 'trybe') { o.trybe++; if (o[v.status] !== undefined) o[v.status]++; } } return o; };
+// Andy 2026-11-14: team videos (CREATIVES sheet) and Trybe creator videos are shown apart everywhere on Production; Total concepts keeps both
+const TST = [['approved','Approved','#3f9b63'],['pending','Pending','#6b6b75'],['revision_requested','Revision','#b38b33'],['rejected','Rejected','#cf4640']];
+const teamV = arr => arr.filter(v => v.src !== 'trybe'), trybeV = arr => arr.filter(v => v.src === 'trybe');
 const share = (o, kk) => o.total ? o[kk] / o.total : 0;
 const mix = o => `<span style="color:#d9b45a">${pct(share(o, 'Net New'), 0)} NN</span> · <span style="color:#7fb2e8">${pct(share(o, 'Iteration'), 0)} Ite</span> · <span style="color:#ff8a80">${pct(share(o, 'Adaptation'), 0)} Adapt</span>`;
 function pProduction() {
@@ -1382,12 +1385,13 @@ function pProduction() {
   let h = head('How much we make', 'Production');
   if (!PR) return h + '<div class="empty">Production data not loaded yet.</div>';
   const [ca, cb] = compareRange(a, b);
-  const c = cnt(vidsIn(a, b, g)), s = cnt(staticsIn(a, b, g));
+  const VV = vidsIn(a, b, g), c = cnt(teamV(VV)), y = cnt(trybeV(VV)), s = cnt(staticsIn(a, b, g));
   const partial = g === 'month' && b >= D.today; // month to date: compare the same days, by date
-  const cp = cnt(vidsIn(ca, cb, partial ? 'week' : g)), sp = cnt(staticsIn(ca, cb, partial ? 'week' : g));
-  const cNow = partial ? cnt(vidsIn(a, b, 'week')) : c, sNow = partial ? cnt(staticsIn(a, b, 'week')) : s;
-  const both = (x, y) => ({total:x.total + y.total, hooks:0, 'Net New':x['Net New'] + y['Net New'], Iteration:x.Iteration + y.Iteration, Adaptation:x.Adaptation + y.Adaptation});
-  const t = both(c, s), tNow = both(cNow, sNow), tp = both(cp, sp);
+  const VP = vidsIn(ca, cb, partial ? 'week' : g), cp = cnt(teamV(VP)), yp = cnt(trybeV(VP)), sp = cnt(staticsIn(ca, cb, partial ? 'week' : g));
+  const VN = partial ? vidsIn(a, b, 'week') : VV, cNow = cnt(teamV(VN)), yNow = cnt(trybeV(VN)), sNow = partial ? cnt(staticsIn(a, b, 'week')) : s;
+  const both = (...xs) => { const o = {total:0, hooks:0, 'Net New':0, Iteration:0, Adaptation:0}; for (const x of xs) for (const kk in o) if (kk !== 'hooks') o[kk] += x[kk]; return o; };
+  const t = both(c, y, s), tNow = both(cNow, yNow, sNow), tp = both(cp, yp, sp);
+  const stMix = o => TST.filter(([kk]) => o[kk]).map(([kk, l, col]) => `<span style="color:${col === '#6b6b75' ? 'var(--ink3)' : col}">${o[kk]} ${l.toLowerCase()}</span>`).join(' · ') || 'none';
   const inprod = PR.in_production || [], inTot = inprod.reduce((x, r) => x + r.n, 0);
   const byStatus = st => inprod.filter(r => r.status === st).reduce((x, r) => x + r.n, 0);
   const inDE = inprod.filter(r => r.mk === 'DE').reduce((x, r) => x + r.n, 0);
@@ -1396,37 +1400,43 @@ function pProduction() {
   const label = g === 'month' ? monthsIn(a, b).map(MONL).join(' + ') : `${fmtD(a)} – ${fmtD(b)}`;
   const kp = (lbl, val, d, sub = '') => `<div class="card kpi"><div class="lbl">${lbl}</div><div class="val num">${val}</div><div class="delta">${d}</div>${sub ? `<div class="delta" style="margin-top:6px">${sub}</div>` : ''}</div>`;
   h += `<div class="note" style="margin:-8px 0 14px">Showing <b style="color:var(--text)">${g === 'month' ? 'months' : 'weeks'}</b>: ${esc(label)}. Pick a week preset for weekly numbers, a month preset for monthly numbers.</div>
-  <div class="grid kpis hero">
-    ${kp('Videos delivered', int(c.total), delta(cNow.total, cp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">${int(c.total - c.trybe)} team · <b style="color:var(--text)">${int(c.trybe)}</b> Trybe creators · ${int(c.hooks)} files with hooks</span>`)}
-    ${kp('Video mix', `${pct(share(c, 'Net New'), 0)} <span class="muted" style="font-size:16px">net new</span>`, mix(c), `<span class="muted">${c['Net New']} NN · ${c.Iteration} Ite · ${c.Adaptation} Adapt</span>`)}
+  <div class="grid kpis hero h5">
+    ${kp('Team videos', int(c.total), delta(cNow.total, cp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">CREATIVES sheet · ${int(c.hooks)} files with hooks</span>`)}
+    ${kp('Team video mix', `${pct(share(c, 'Net New'), 0)} <span class="muted" style="font-size:16px">net new</span>`, mix(c), `<span class="muted">${c['Net New']} NN · ${c.Iteration} Ite · ${c.Adaptation} Adapt</span>`)}
+    ${kp('Trybe videos', int(y.total), delta(yNow.total, yp.total) + (partial ? ' <span class="muted">same days last month</span>' : ''), `<span class="muted">creator UGC · ${stMix(y)}</span>`)}
     ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
-    ${kp('Concepts tested', int(t.total), delta(tNow.total, tp.total), `<span class="muted">videos + statics · ${pct(share(t, 'Net New'), 0)} net new</span>`)}
+    ${kp('Total concepts', int(t.total), delta(tNow.total, tp.total), `<span class="muted">team videos + Trybe + statics · ${pct(share(t, 'Net New'), 0)} net new</span>`)}
     <div class="card kpi" style="grid-column:1/-1"><div class="lbl">Videos in production · editing now, per editor</div><div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><div class="val num">${int(inTot)}</div><span class="delta muted">${inTot - inDE} English · ${inDE} German 🇩🇪${byStatus('Ready for visuals') ? ' · ' + byStatus('Ready for visuals') + ' ready for visuals' : ''}</span></div>
       <div style="margin-top:8px">${edChips}</div><div class="delta muted" style="margin-top:6px">live from Notion: Evergreen Video (Assigned to Editor) + German Creatives 🇩🇪 board (Edit not yet received)</div></div>
   </div>
   ${(() => { const tm = D.today.slice(0, 7), lm = addM(tm, -1), lm2 = addM(tm, -2);
-    const vm = m => cnt(PR.videos.filter(v => v.m === m)), sm = m => cnt(((PR.statics || []).find(x => x.month === m) || {items:[]}).items);
+    const vm = m => cnt(teamV(PR.videos.filter(v => v.m === m))), ym = m => cnt(trybeV(PR.videos.filter(v => v.m === m))), sm = m => cnt(((PR.statics || []).find(x => x.month === m) || {items:[]}).items);
+    const card3 = (m, o, unit) => `<div class="card kpi"><div class="lbl">Trybe videos · ${MONL(m)}</div><div class="val num">${int(o.total)} <span class="muted" style="font-size:14px">${unit}</span></div>
+      <div class="ratio"><div class="rb">${TST.map(([kk, l, col]) => `<i style="width:${(share(o, kk) * 100).toFixed(1)}%;background:${col}" title="${l} ${pct(share(o, kk), 0)}"></i>`).join('')}</div>
+      <div class="rl">${TST.map(([kk, l, col]) => `<span><i style="background:${col}"></i>${l} <b>${o[kk]}</b></span>`).join('')}</div></div></div>`;
     const card2 = (t, m, o, unit) => `<div class="card kpi"><div class="lbl">${t} · ${MONL(m)}</div><div class="val num">${int(o.total)} <span class="muted" style="font-size:14px">${unit}</span></div>
       <div class="ratio"><div class="rb">${CATS.map(([n, col]) => `<i style="width:${(share(o, n) * 100).toFixed(1)}%;background:${col}" title="${n} ${pct(share(o, n), 0)}"></i>`).join('')}</div>
       <div class="rl">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n} <b>${pct(share(o, n), 0)}</b> (${o[n]})</span>`).join('')}</div></div></div>`;
-    return `<h2 class="sec">Month view <small>net new · iteration · adaptation ratio</small></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
-      ${card2('Videos', tm, vm(tm), 'so far')}${card2('Videos', lm, vm(lm), 'last month')}${card2('Statics', tm, sm(tm), 'so far')}${card2('Statics', lm, sm(lm), 'last month')}
-      ${card2('Videos', lm2, vm(lm2), '')}${card2('Statics', lm2, sm(lm2), '')}</div>`; })()}
+    return `<h2 class="sec">Month view <small>net new · iteration · adaptation ratio · Trybe by review status</small></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+      ${[[tm, 'so far'], [lm, 'last month'], [lm2, '']].map(([m, u]) => card2('Team videos', m, vm(m), u) + card3(m, ym(m), u) + card2('Statics', m, sm(m), u)).join('')}</div>`; })()}
   <div class="chart-top" style="margin-top:22px"><h2 class="sec" style="margin:0">${g === 'month' ? 'Month by month' : 'Week by week'} <small>${g === 'month' ? 'since January' : 'last 12 weeks'}</small></h2>
     <div class="tabs-mini" id="pmode">${[['n','Count'],['p','% mix']].map(([v, l]) => `<button data-v="${v}" class="${(S.pmode || 'n') === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
-  <div class="grid charts3" style="margin-top:10px">
-    <div class="card chart-card"><h3>Total concepts</h3><div class="sub">videos + statics</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chT"></canvas></div></div>
-    <div class="card chart-card"><h3>Videos</h3><div class="sub">CREATIVES sheet + Trybe · ${g === 'month' ? 'month section' : 'date sent'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chV"></canvas></div></div>
+  <div class="grid charts4" style="margin-top:10px">
+    <div class="card chart-card"><h3>Total concepts</h3><div class="sub">team videos + Trybe + statics</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chT"></canvas></div></div>
+    <div class="card chart-card"><h3>Team videos</h3><div class="sub">CREATIVES sheet · ${g === 'month' ? 'month section' : 'date sent'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chV"></canvas></div></div>
+    <div class="card chart-card"><h3>Trybe videos</h3><div class="sub">creator UGC · date submitted · by review status</div><div class="legend">${TST.map(([kk, l, col]) => `<span><i style="background:${col}"></i>${l}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chY"></canvas></div></div>
     <div class="card chart-card"><h3>Statics</h3><div class="sub">Figma · ${g === 'month' ? 'Approved + Tested + Winners on each month page' : 'by the date in the ad name'}</div><div class="legend">${CATS.map(([n, col]) => `<span><i style="background:${col}"></i>${n}</span>`).join('')}</div><div class="chart-wrap" style="height:250px"><canvas id="chS"></canvas></div></div>
   </div>`;
   let buckets;
   if (g === 'month') { buckets = monthsIn('2026-01-01', D.today).map(m => ({key:m, label:MON(m), a:m + '-01', b:m + '-31', sel:monthsIn(a, b).includes(m)})); }
   else { buckets = []; let m = monday(addD(D.today, -7 * 11)); while (m <= D.today) { const e = addD(m, 6); buckets.push({key:m, label:fmtD(m) + (e > D.today ? '*' : ''), a:m, b:e, sel:m <= b && e >= a}); m = addD(m, 7); } }
-  for (const bk of buckets) { bk.v = cnt(vidsIn(bk.a, bk.b, g)); bk.s = cnt(staticsIn(bk.a, bk.b, g)); bk.t = both(bk.v, bk.s); }
+  for (const bk of buckets) { const vv0 = vidsIn(bk.a, bk.b, g); bk.v = cnt(teamV(vv0)); bk.y = cnt(trybeV(vv0)); bk.s = cnt(staticsIn(bk.a, bk.b, g)); bk.t = both(bk.v, bk.y, bk.s); }
+  const rowY = (lbl, o, sel) => `<tr style="${sel ? 'background:#c7b48b12' : ''}"><td>${lbl}${sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${o.total}</b></td>${TST.map(([kk]) => `<td>${o[kk] || '–'}</td>`).join('')}</tr>`;
   const row = (lbl, o, sel) => `<tr style="${sel ? 'background:#c7b48b12' : ''}"><td>${lbl}${sel ? ' <span class="pill gold">selected</span>' : ''}</td><td><b>${o.total}</b></td><td>${o.hooks || '–'}</td><td>${o['Net New']} <span class="muted">${pct(share(o, 'Net New'), 0)}</span></td><td>${o.Iteration} <span class="muted">${pct(share(o, 'Iteration'), 0)}</span></td><td>${o.Adaptation} <span class="muted">${pct(share(o, 'Adaptation'), 0)}</span></td></tr>`;
-  h += `<div class="grid charts3" style="margin-top:14px">
+  h += `<div class="grid charts4" style="margin-top:14px">
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Concepts</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.t, hooks:0}, bk.sel)).join('')}</tbody></table></div>
-    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Videos</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, bk.v, bk.sel)).join('')}</tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Team videos</th><th>Files</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, bk.v, bk.sel)).join('')}</tbody></table></div>
+    <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Trybe videos</th>${TST.map(([, l]) => `<th>${l}</th>`).join('')}</tr></thead><tbody>${buckets.slice().reverse().map(bk => rowY(bk.label, bk.y, bk.sel)).join('')}</tbody></table></div>
     <div class="tbl-wrap"><table><thead><tr><th>${g === 'month' ? 'Month' : 'Week'}</th><th>Statics</th><th></th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>${buckets.slice().reverse().map(bk => row(bk.label, {...bk.s, hooks:0}, bk.sel)).join('')}</tbody></table></div>
   </div>`;
   const eds = {}, vv = vidsIn(a, b, g);
@@ -1442,7 +1452,7 @@ function pProduction() {
     <div><h2 class="sec">By designer <small>${esc(label)}</small></h2><div class="tbl-wrap"><table><thead><tr><th>Designer</th><th>Statics</th><th>Net New</th><th>Iteration</th><th>Adaptation</th></tr></thead><tbody>
       ${Object.entries(des).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => pplRow(n, o, false)).join('') || '<tr><td colspan="5" class="muted">No statics in these dates</td></tr>'}</tbody></table></div></div>
   </div>
-  <div class="note">Videos: CREATIVES sheet + every Trybe creator video (date submitted, all review statuses${PR.trybe_at ? ', synced ' + esc(PR.trybe_at.slice(0, 10)) : ''}). Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. Editing now: Notion Evergreen Video (Assigned to Editor, Ready for visuals) + German Creatives 🇩🇪 board (Edit not yet received). Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
+  <div class="note">Team videos: CREATIVES sheet. Trybe videos: every Trybe creator video, shown apart (date submitted, all review statuses${PR.trybe_at ? ', synced ' + esc(PR.trybe_at.slice(0, 10)) : ''}). Statics: Figma "Northernknife Creatives 2026"; V2+ in the name = iteration, Src-&lt;brand&gt; = adaptation. Editing now: Notion Evergreen Video (Assigned to Editor, Ready for visuals) + German Creatives 🇩🇪 board (Edit not yet received). Market filter does not apply here.${Object.keys(PR.errors || {}).length ? ' <span class="bad">Last sync issue: ' + esc(Object.entries(PR.errors).map(([kk, v]) => kk + ': ' + v).join(' | ')) + '</span>' : ''}</div>`;
   afterRender.push(() => {
     $('#pmode').onclick = e => { const bt = e.target.closest('button'); if (bt) { S.pmode = bt.dataset.v; render(); } };
     const pc = (S.pmode || 'n') === 'p';
@@ -1452,6 +1462,8 @@ function pProduction() {
     const ds = key => CATS.map(([n, col]) => ({label:n, data:buckets.map(bk => pc ? Math.round(share(bk[key], n) * 100) : bk[key][n]),
       backgroundColor:buckets.map(bk => bk.sel ? col : col + '66'), borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}));
     charts.v = new Chart($('#chV'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('v')}, options:opt});
+    charts.y = new Chart($('#chY'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:TST.map(([kk, l, col]) => ({label:l, data:buckets.map(bk => pc ? Math.round(share(bk.y, kk) * 100) : bk.y[kk]),
+      backgroundColor:buckets.map(bk => bk.sel ? col : col + '66'), borderColor:'#141416', borderWidth:{top:2}, borderRadius:3, maxBarThickness:40}))}, options:opt});
     charts.s = new Chart($('#chS'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('s')}, options:opt});
     charts.t = new Chart($('#chT'), {type:'bar', data:{labels:buckets.map(bk => bk.label), datasets:ds('t')}, options:opt});
   });
