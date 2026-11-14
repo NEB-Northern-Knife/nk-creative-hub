@@ -3,9 +3,13 @@
 'use strict';
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const FLAGS = {US:'🇺🇸',UK:'🇬🇧',AU:'🇦🇺',CA:'🇨🇦',DE:'🇩🇪',NL:'🇳🇱',ALL:'🌍'};
+const FLAGS = {US:'🇺🇸',UK:'🇬🇧',AU:'🇦🇺',CA:'🇨🇦',DE:'🇩🇪',NL:'🇳🇱',ALL:'🌍',XDE:'🌍'};
+// XDE = every country except Germany (Andy 2026-11-14)
+const isAgg = m => m === 'ALL' || m === 'XDE';
+const inMkt = (m, st) => m === 'ALL' || (m === 'XDE' ? st !== 'DE' : st === m);
+const mName = (m, all = 'All markets combined') => m === 'ALL' ? all : m === 'XDE' ? 'All except Germany' : m;
 const SYM = {USD:'$',GBP:'£',AUD:'A$',CAD:'C$',EUR:'€'};
-const MODELS = {fc:'First Click', ta:'Triple', pl:'Platform'};
+const MODELS = {fc:'First Click', ta:'Triple', pl:'C&D'};
 const WIN_BAR = 10000;
 const LS = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } };
 
@@ -115,7 +119,7 @@ const isNew = (c, a, b) => { const i = firstLive().get(c.key); return i !== unde
 
 /* ---------------- money ---------------- */
 const fx = st => (D.fx && D.fx[st]) || 1;
-const localMode = () => S.cur === 'LOCAL' && S.market !== 'ALL';
+const localMode = () => S.cur === 'LOCAL' && !isAgg(S.market);
 const curCode = () => localMode() ? (D.stores.find(s => s.code === S.market) || {}).cur : 'USD';
 const k = st => localMode() ? fx(st) / fx(S.market) : fx(st); // everything lands in the displayed currency
 function money(v, dec) {
@@ -136,7 +140,7 @@ function delta(cur, prev, invert) {
   const d = cur / prev - 1, good = invert ? d < 0 : d > 0;
   return `<span class="${good ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d * 100).toFixed(1)}%</span>`;
 }
-const marketOk = st => S.market === 'ALL' || st === S.market;
+const marketOk = st => inMkt(S.market, st);
 
 /* ---------------- aggregation ---------------- */
 function kpis(a, b, mkt = S.market) {
@@ -144,27 +148,27 @@ function kpis(a, b, mkt = S.market) {
   const [i0, i1] = idxRange(a, b);
   for (let i = i0; i <= i1; i++) {
     for (const [st, q] of Object.entries(D.kpi[i] || {})) {
-      if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+      if (!inMkt(mkt, st)) continue; const f = k(st);
       o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.addBack += (q[6] || 0) * f;
     }
     for (const [st, q] of Object.entries(D.paid[i] || {})) {
-      if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+      if (!inMkt(mkt, st)) continue; const f = k(st);
       o.paidSp += q[0] * f; o.paidFc += q[1] * f; o.paidTa += q[2] * f; o.metaSp += q[3] * f; o.metaFc += q[4] * f; o.metaTa += q[5] * f; o.metaPl += q[6] * f;
     }
   }
   // month blocks count only when the range covers the whole month; other days before the daily window come from pdays (exact days, no attribution)
   const mEndOf = m => iso(new Date(Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 0))), fullM = new Set(monthIdx(a, b).filter(i => a <= D.months[i] + '-01' && b >= mEndOf(D.months[i])).map(i => D.months[i]));
   if (a < D.days[0] && D.pdays && D.pdays.length) D.pdays.forEach((d, i) => { if (d < a || d > b || fullM.has(d.slice(0, 7))) return; for (const [st, q] of Object.entries(D.pkpi[i] || {})) {
-    if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+    if (!inMkt(mkt, st)) continue; const f = k(st);
     o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.noAttr = true; } });
   for (const i of monthIdx(a, b)) {
     if (D.pdays && D.pdays.length && !fullM.has(D.months[i])) continue;
     for (const [st, q] of Object.entries(D.mkpi[i] || {})) {
-      if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+      if (!inMkt(mkt, st)) continue; const f = k(st);
       o.sales += q[0] * f; o.spend += q[1] * f; o.profit += (q[2] || 0) * f; o.orders += q[3] || 0; o.ncOrders += q[4] || 0; o.ncSales += (q[5] || 0) * f; o.addBack += (q[6] || 0) * f;
     }
     for (const [st, q] of Object.entries(D.mpaid[i] || {})) {
-      if (mkt !== 'ALL' && st !== mkt) continue; const f = k(st);
+      if (!inMkt(mkt, st)) continue; const f = k(st);
       o.paidSp += q[0] * f; o.paidFc += q[1] * f; o.paidTa += q[2] * f; o.metaSp += q[3] * f; o.metaFc += q[4] * f; o.metaTa += q[5] * f; o.metaPl += q[6] * f;
     }
   }
@@ -179,7 +183,7 @@ function adSums(a, b, mkt = S.market) {
   const [i0, i1] = idxRange(a, b), m = new Map();
   for (const r of D.rows) {
     if (r[1] < i0 || r[1] > i1) continue;
-    const ad = D.ads[r[0]]; if (mkt !== 'ALL' && ad.s !== mkt) continue;
+    const ad = D.ads[r[0]]; if (!inMkt(mkt, ad.s)) continue;
     let o = m.get(r[0]); if (!o) { o = {ad, sp:0, pr:0, fc:0, ta:0, fco:0, im:0, cl:0, atc:0, usd:0}; m.set(r[0], o); }
     const f = k(ad.s);
     o.sp += r[2] * f; o.pr += r[3] * f; o.fc += r[4] * f; o.ta += r[5] * f; o.fco += r[6]; o.im += r[7]; o.cl += r[8]; o.atc += r[9]; o.usd += r[2] * fx(ad.s);
@@ -187,7 +191,7 @@ function adSums(a, b, mkt = S.market) {
   const mis = new Set(monthIdx(a, b));
   for (const r of D.mrows || []) {
     if (!mis.has(r[1])) continue;
-    const ad = D.ads[r[0]]; if (mkt !== 'ALL' && ad.s !== mkt) continue;
+    const ad = D.ads[r[0]]; if (!inMkt(mkt, ad.s)) continue;
     let o = m.get(r[0]); if (!o) { o = {ad, sp:0, pr:0, fc:0, ta:0, fco:0, im:0, cl:0, atc:0, usd:0}; m.set(r[0], o); }
     const f = k(ad.s);
     o.sp += r[2] * f; o.pr += r[3] * f; o.fc += r[4] * f; o.ta += r[5] * f; o.fco += r[6]; o.im += r[7]; o.cl += r[8]; o.atc += r[9]; o.usd += r[2] * fx(ad.s);
@@ -242,7 +246,7 @@ function concepts(a, b, mkt = S.market) {
   memo.set(key, out); return out;
 }
 const ROLE = {acq:['Acquirer','green','First Click holds up: this ad starts new journeys. Scale candidate.'],
-              close:['Closer','blue','Platform far above First Click: mostly finishes journeys other ads started.'],
+              close:['Closer','blue','C&D far above First Click: earns its credit from later clicks and views in journeys other ads started.'],
               bal:['Balanced','','Credit holds across models.']};
 function benchmark(cs, m = S.model) { const sp = cs.reduce((a, c) => a + c.sp, 0); return sp ? cs.reduce((a, c) => a + revOf(c, m), 0) / sp : 0; }
 function target(m = S.model) {
@@ -319,7 +323,7 @@ function buildShell() {
   $('#nav').innerHTML = PAGES.filter(([p]) => canSee(p)).map(([p, l]) => `<button class="nav-item" data-p="${p}"><svg viewBox="0 0 24 24">${ICONS[p]}</svg>${l}</button>` +
     (p === 'health' ? HTABS.map(([v, t]) => `<button class="nav-sub" data-p="health" data-ht="${v}">${t}</button>`).join('') : '')).join('');
   $('#nav').onclick = e => { const b = e.target.closest('[data-p]'); if (b) { S.page = b.dataset.p; if (b.dataset.ht) S.ht = b.dataset.ht; $('#side').classList.remove('open'); $('#drawer').classList.contains('open') || $('#scrim').classList.remove('open'); render(); window.scrollTo(0, 0); } };
-  seg('#cMarket', ['ALL', ...D.stores.map(s => s.code)].map(c => [c, (FLAGS[c] || '') + ' ' + (c === 'ALL' ? 'All' : c)]), 'market', () => { if (S.market === 'ALL') S.cur = 'USD'; });
+  seg('#cMarket', ['ALL', 'XDE', ...D.stores.map(s => s.code)].map(c => [c, (FLAGS[c] || '') + ' ' + (c === 'ALL' ? 'All' : c === 'XDE' ? 'All but DE' : c)]), 'market', () => { if (isAgg(S.market)) S.cur = 'USD'; });
   seg('#cModel', Object.entries(MODELS), 'model');
   const mi = $('#cMin'); mi.value = S.min; $('#cMinV').textContent = '$' + S.min;
   mi.oninput = () => { S.min = +mi.value; $('#cMinV').textContent = '$' + S.min; render(); };
@@ -363,7 +367,7 @@ function rangeBar() {
   return `<div class="rangebar"><div class="seg" id="rPre">${PRESETS.map(([v, l]) => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
     ${S.page === 'markets' || S.page === 'conv' ? `<button class="dp-btn cmp-btn" id="cmpBtn"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>Compare with: <b>${S.cmp === 'custom' ? 'Custom dates' : (CMPS.find(x => x[0] === S.cmp) || CMPS[0])[1]}</b> · ${fmtD(ca)} – ${fmtD(cb)}${ca.slice(0, 4) !== S.from.slice(0, 4) ? ' ' + ca.slice(0, 4) : ''} ▾</button>` : ''}
-    <span class="cmp">${S.market === 'ALL' ? 'all markets' : S.market} · ${S.page === 'conv' ? '' : S.page === 'markets' ? (ca < '2025-01-01' ? 'the hub has no data that far back' : ca < MIN_DAY ? 'before 1 Jan 2026 the hub counts whole months' : '') : ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
+    <span class="cmp">${mName(S.market, 'all markets')} · ${S.page === 'conv' ? '' : S.page === 'markets' ? (ca < '2025-01-01' ? 'the hub has no data that far back' : ca < MIN_DAY ? 'before 1 Jan 2026 the hub counts whole months' : '') : ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
 }
 const DP = {a:null, b:null, hover:null, view:null, cfg:null};
 const dpMin = () => (DP.cfg && DP.cfg.min) || MIN_DAY;
@@ -465,7 +469,7 @@ function wireFresh() {
 }
 function head(kicker, title) {
   return freshBar() + `<div class="page-head"><div><div class="kicker">${kicker}</div><h1>${title}</h1></div>
-    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined' : S.market} · ROAS: <b style="color:var(--gold)">${MODELS[S.model]}</b> · ${curCode()}</div></div>` + rangeBar();
+    <div class="meta">${FLAGS[S.market]} ${mName(S.market)} · ROAS: <b style="color:var(--gold)">${MODELS[S.model]}</b> · ${curCode()}</div></div>` + rangeBar();
 }
 const afterRender = [];
 function render() {
@@ -491,7 +495,7 @@ function wireCards(root) {
 
 /* ---------------- cards ---------------- */
 function roas3(r) {
-  return `<div class="roas3">${['fc','ta','pl'].map(m => `<div class="${m === S.model ? 'lead' : ''}"><b class="${rc(r[m], m)}">${x2(r[m])}</b><span>${m === 'fc' ? 'First click' : m === 'ta' ? 'Triple' : 'Platform'}</span></div>`).join('')}</div>`;
+  return `<div class="roas3">${['fc','ta','pl'].map(m => `<div class="${m === S.model ? 'lead' : ''}"><b class="${rc(r[m], m)}">${x2(r[m])}</b><span>${m === 'fc' ? 'First click' : m === 'ta' ? 'Triple' : 'C&amp;D'}</span></div>`).join('')}</div>`;
 }
 const durS = d => d ? (d >= 60 ? Math.floor(d / 60) + ':' + String(d % 60).padStart(2, '0') : '0:' + String(d).padStart(2, '0')) : '';
 function card(c, rank) {
@@ -535,14 +539,14 @@ function pHQ() {
   if (REV) h += `<div class="grid kpis hero">
     ${kp('Revenue', money(o.sales), delta(o.sales, p.sales))}
     ${kp('Ad spend', money(o.spend), delta(o.spend, p.spend))}
-    ${kp(MODELS[S.model] + ' ROAS', x2(o.r[S.model]), delta(o.r[S.model], p.r[S.model]), rc(o.r[S.model]), 'Paid channels. Platform = Meta self-reported.')}
+    ${kp(MODELS[S.model] + ' ROAS', x2(o.r[S.model]), delta(o.r[S.model], p.r[S.model]), rc(o.r[S.model]), 'Paid channels. C&amp;D = Clicks &amp; Deterministic Views, Meta.')}
     ${UNL ? kp('Net profit', money(o.profit), delta(o.profit, p.profit), o.profit >= 0 ? 'good' : 'bad', 'AU adds back its custom expenses') : ''}
   </div>
   <div id="moreK" class="${S.more ? '' : 'hidden'}"><div class="grid kpis" style="margin-top:14px">
     ${kp('Blended ROAS', x2(o.roas), delta(o.roas, p.roas))}
     ${kp('First Click ROAS', x2(o.r.fc), delta(o.r.fc, p.r.fc), rc(o.r.fc, 'fc'))}
     ${kp('Triple ROAS', x2(o.r.ta), delta(o.r.ta, p.r.ta), rc(o.r.ta, 'ta'))}
-    ${kp('Meta platform ROAS', x2(o.r.pl), delta(o.r.pl, p.r.pl))}
+    ${kp('Meta C&amp;D ROAS', x2(o.r.pl), delta(o.r.pl, p.r.pl))}
     ${UNL ? kp('Orders', int(o.orders), delta(o.orders, p.orders)) + kp('AOV', money(o.aov, 0), delta(o.aov, p.aov)) + kp('New-customer CPA', money(o.ncCpa, 0), delta(o.ncCpa, p.ncCpa, true)) : ''}
   </div>${UNL ? `<div class="note">Net profit is Triple Whale's, with Australia's custom expenses added back (${money(o.addBack)} in this range).</div>` : ''}</div>
   <button class="btn ghost sm more-btn" id="moreBtn">${S.more ? 'Show less' : 'Show all numbers'}</button>`;
@@ -551,9 +555,9 @@ function pHQ() {
   <div class="grid champs">${adCard(bv, '🏆 Top video')}${canSee('statics') ? adCard(bs, '🖼 Top static') : ''}${pCard(ed, '✂ Top editor', 'editors')}${pCard(de, '🎨 Top designer', 'designers')}${pCard(stg, '♟ Top strategist', 'strategists')}</div>
   `;
   if (REV) h += `<h2 class="sec">Markets</h2>${marketTable(a, b, ca, cb)}
-  <h2 class="sec">Trend <small>by week, ${S.market === 'ALL' ? 'all markets' : S.market}</small></h2>
+  <h2 class="sec">Trend <small>by week, ${mName(S.market, 'all markets')}</small></h2>
   <div class="card chart-card"><div class="chart-top"><div class="tabs-mini" id="trTabs">${[['rev','Revenue'],['sp','Spend'],['roas','ROAS']].concat(UNL ? [['profit','Net profit']] : []).map(([v, l]) => `<button data-v="${v}" class="${S.trend === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-  ${S.trend === 'roas' ? '<div class="legend" style="margin:0"><span><i style="background:var(--c-fc)"></i>First Click</span><span><i style="background:var(--c-ta)"></i>Triple</span><span><i style="background:var(--c-pl)"></i>Platform (dashed)</span></div>' : ''}</div>
+  ${S.trend === 'roas' ? '<div class="legend" style="margin:0"><span><i style="background:var(--c-fc)"></i>First Click</span><span><i style="background:var(--c-ta)"></i>Triple</span><span><i style="background:var(--c-pl)"></i>C&amp;D (dashed)</span></div>' : ''}</div>
   <div class="chart-wrap" style="height:260px"><canvas id="chTr"></canvas></div><div class="note">The current week is still running (marked *).</div></div>`;
   if (REV) afterRender.push(() => {
     $('#moreBtn').onclick = () => { S.more = !S.more; render(); };
@@ -587,7 +591,7 @@ function trendChart() {
     charts.tr = new Chart($('#chTr'), {type:'line', data:{labels, datasets:[
       {label:'First Click', data:ks.map(o => +o.r.fc.toFixed(2)), borderColor:'#b38b33', backgroundColor:'#b38b33', borderWidth:2, pointRadius:4, tension:.25},
       {label:'Triple', data:ks.map(o => +o.r.ta.toFixed(2)), borderColor:'#3a80c4', backgroundColor:'#3a80c4', borderWidth:2, pointRadius:4, tension:.25},
-      {label:'Platform', data:ks.map(o => +o.r.pl.toFixed(2)), borderColor:'#cf4640', backgroundColor:'#cf4640', borderWidth:2, borderDash:[5, 4], pointRadius:4, tension:.25}]}, options:base});
+      {label:'C&D', data:ks.map(o => +o.r.pl.toFixed(2)), borderColor:'#cf4640', backgroundColor:'#cf4640', borderWidth:2, borderDash:[5, 4], pointRadius:4, tension:.25}]}, options:base});
   } else {
     const f = {rev:o => o.sales, sp:o => o.spend, profit:o => o.profit}[S.trend], lbl = {rev:'Revenue', sp:'Spend', profit:'Net profit'}[S.trend];
     charts.tr = new Chart($('#chTr'), {type:'bar', data:{labels, datasets:[{label:lbl, data:ks.map(f), backgroundColor:weeks.map(w => w[2] ? '#c7b48b55' : '#c7b48b'), borderRadius:4, maxBarThickness:40}]},
@@ -603,14 +607,14 @@ function pCreatives(kind) {
   const products = [...new Set(all.map(c => c.product).filter(Boolean))].sort();
   const people = [...new Set(all.map(c => isV ? c.editor : c.designer).filter(Boolean))].sort();
   h += `<div class="toolbar">
-    <select id="fMkt"><option value="ALL">🌍 All countries combined</option>${D.stores.map(s => `<option value="${s.code}" ${S.market === s.code ? 'selected' : ''}>${FLAGS[s.code]} ${s.name}</option>`).join('')}</select>
+    <select id="fMkt"><option value="ALL">🌍 All countries combined</option><option value="XDE" ${S.market === 'XDE' ? 'selected' : ''}>🌍 All countries except Germany</option>${D.stores.map(s => `<option value="${s.code}" ${S.market === s.code ? 'selected' : ''}>${FLAGS[s.code]} ${s.name}</option>`).join('')}</select>
     <select id="fSort"><option value="sp">Sort: spend</option><option value="roas">Sort: ${MODELS[S.model]} ROAS</option><option value="rev">Sort: ${MODELS[S.model]} revenue</option>${isV ? '<option value="hook">Sort: hook rate</option><option value="hold">Sort: hold rate</option>' : ''}<option value="lctr">Sort: link CTR</option><option value="ctr">Sort: CTR</option><option value="cpm">Sort: lowest CPM</option><option value="new">Sort: newest launch</option></select>
     <select id="fProd"><option value="">All products</option>${products.map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <select id="fWho"><option value="">All ${isV ? 'editors' : 'designers'}</option>${people.map(p => `<option>${esc(p)}</option>`).join('')}</select>
     <input type="search" id="fQ" placeholder="Search name, ID, angle..."></div><div id="crList"></div>`;
-  if (S.market === 'ALL') {
+  if (isAgg(S.market)) {
     h += `<h2 class="sec">Best ${isV ? 'video' : 'static'} per country <small>${MODELS[S.model]} ROAS, min $${S.min} spend</small></h2><div class="grid strip">`;
-    for (const st of D.stores) {
+    for (const st of D.stores.filter(x => inMkt(S.market, x.code))) {
       const c = concepts(a, b, st.code).filter(x => x.kind === kind && x.usd >= S.min).sort((x, y) => y.r[S.model] - x.r[S.model])[0];
       h += c ? `<div class="card mk" data-c="${esc(c.key)}" data-st="${st.code}"><div class="thumb" style="background-image:url('${esc(c.thumb || '')}')"></div><div class="body"><div class="m">${FLAGS[st.code]} ${st.code}</div><div class="ttl">${esc((c.id || '') + ' ' + c.title)}</div><div class="s"><span class="${rc(c.r[S.model])}">${x2(c.r[S.model])}</span> ${MODELS[S.model]} · ${money(c.sp)}</div></div></div>`
              : `<div class="card mk"><div class="body"><div class="m">${FLAGS[st.code]} ${st.code}</div><div class="s">Nothing over the min spend</div></div></div>`;
@@ -618,14 +622,14 @@ function pCreatives(kind) {
     h += '</div>';
   }
   afterRender.push(() => {
-    $('#fMkt').onchange = e => { S.market = e.target.value; if (S.market === 'ALL') S.cur = 'USD'; render(); };
+    $('#fMkt').onchange = e => { S.market = e.target.value; if (isAgg(S.market)) S.cur = 'USD'; render(); };
     const draw = () => {
       const sort = $('#fSort').value, prod = $('#fProd').value, who = $('#fWho').value, q = $('#fQ').value.toLowerCase();
       let cs = all.filter(c => c.sp >= mk && (!prod || c.product === prod) && (!who || (isV ? c.editor : c.designer) === who));
       if (q) cs = cs.filter(c => (c.key + ' ' + c.title + ' ' + (c.angle || '') + ' ' + (c.format || '') + ' ' + c.ads.map(x => x.ad.n).join(' ')).toLowerCase().includes(q));
       const f = {roas:c => c.r[S.model], rev:c => revOf(c), sp:c => c.sp, ctr:c => c.ctr || 0, lctr:c => c.lctr || 0, hook:c => c.hook || 0, hold:c => c.hold || 0, cpm:c => c.cpm ? -c.cpm : -1e9, new:c => c.launched || ''}[sort];
       cs.sort((x, y) => f(y) > f(x) ? 1 : f(y) < f(x) ? -1 : 0);
-      $('#crList').innerHTML = cs.length ? `<div class="grid gallery">${cs.slice(0, 60).map((c, i) => card(c, i + 1)).join('')}</div><div class="note">${cs.length} concepts over $${S.min} spend, ${S.market === 'ALL' ? 'every country combined' : S.market + ' only'}. ${isV ? 'Hover a card to preview, click to watch with sound. ' : ''}Green = ROAS at or above ${S.target === 'auto' ? 'the account average' : S.target} (${x2(target())}).</div>`
+      $('#crList').innerHTML = cs.length ? `<div class="grid gallery">${cs.slice(0, 60).map((c, i) => card(c, i + 1)).join('')}</div><div class="note">${cs.length} concepts over $${S.min} spend, ${S.market === 'ALL' ? 'every country combined' : S.market === 'XDE' ? 'every country except Germany' : S.market + ' only'}. ${isV ? 'Hover a card to preview, click to watch with sound. ' : ''}Green = ROAS at or above ${S.target === 'auto' ? 'the account average' : S.target} (${x2(target())}).</div>`
         : '<div class="empty">Nothing matches. Lower the min spend in the control panel or widen the dates.</div>';
       wireCards($('#crList'));
     };
@@ -667,7 +671,7 @@ function pBoard() {
   const hearts = n => { const on = Math.min(n, 6); return `<div class="hearts" title="${n} hits">${'♥'.repeat(on)}<span class="off">${'♥'.repeat(6 - on)}</span></div>`; };
   const roasCls = v => rc(v) === 'good' ? 'g-money' : 'g-red';
   let h = rangeBar().replace('class="rangebar"', 'class="rangebar" style="margin-top:0"');
-  h += `<div class="hud"><div class="hud-title"><h1 class="vk">Leaderboard</h1><span class="sub">${fmtD(a)} – ${fmtD(b)} · ${MODELS[S.model]} · ${S.market === 'ALL' ? 'all markets' : S.market}</span></div>
+  h += `<div class="hud"><div class="hud-title"><h1 class="vk">Leaderboard</h1><span class="sub">${fmtD(a)} – ${fmtD(b)} · ${MODELS[S.model]} · ${mName(S.market, 'all markets')}</span></div>
     <div class="roles">${Object.entries(ROLE_UI).map(([kk, [ic, nm, what]]) => { const n = board(a, b, kk).length;
       return `<button class="role wood ${S.board === kk ? 'on' : ''}" data-bt="${kk}"><span class="ico slot">${ic}</span><span><div class="rl vk">${nm}</div><div class="rs">${n} on the board · ${what}</div></span></button>`; }).join('')}</div>`;
   if (!bd.length) h += '<div class="empty">No one credited in this range. Names must be in the ad name.</div>';
@@ -986,7 +990,7 @@ function fillKeys(a, b, g) { // every day / Monday week / month / year in [a, b]
 }
 function pHealth() {
   if (ACCESS !== 'owner' || !HL) return `<div class="page-head"><div><div class="kicker">Owner only</div><h1>Business health</h1></div></div><div class="empty">This page needs the owner password.</div>`;
-  const mk = (S.market === 'ALL' ? Object.keys(HL.stores) : [S.market]).filter(st => HL.stores[st]);
+  const mk = Object.keys(HL.stores).filter(st => inMkt(S.market, st));
   const today = D.today, thisMonth = today.slice(0, 7), tab = S.ht || 'overview';
   const ZS = {s:{h:.8, bar:16, fs:12, tk:11}, m:{h:1, bar:30, fs:13, tk:12.5}, l:{h:1.45, bar:64, fs:15, tk:14}}, hz = S.hz || 'm', Z = ZS[hz], H = px => Math.round(px * Z.h);
   const addM = (m, n) => { const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + n); return iso(d).slice(0, 7); };
@@ -1063,7 +1067,7 @@ function pHealth() {
 
   // ---------- header + controls
   let h = freshBar() + `<div class="page-head"><div><div class="kicker">Owner only · nobody else can open this page or its data</div><h1>Business health</h1></div>
-    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined (USD)' : S.market + ' · ' + curCode()} · data since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}</div></div>
+    <div class="meta">${FLAGS[S.market]} ${isAgg(S.market) ? mName(S.market) + ' (USD)' : S.market + ' · ' + curCode()} · data since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}</div></div>
     <div class="htabs">${HTABS.map(([v, l]) => `<button data-ht="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="hbar card">
       <button class="dp-btn hdp" id="hRange"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span><small>${(HPRE.find(x => x[0] === pre) || [0, 'Custom'])[1]} · ${span} day${span > 1 ? 's' : ''}</small><b>${fRange(A, Bd)}</b></span><i>▾</i></button>
@@ -1161,7 +1165,7 @@ function pHealth() {
     const head = one ? `<th>Revenue</th><th>Ad spend</th><th>ROAS</th><th>Margin</th><th>Profit</th>` : `${mk.map(st => `<th>${FLAGS[st]} ${st}</th>`).join('')}<th>Revenue</th><th>Ad spend</th><th>ROAS</th><th>Margin</th><th>Total profit</th>`;
     const totRow = `<tr class="tot"><td class="l">Total · ${pr.length} ${g}${pr.length > 1 ? 's' : ''}</td>${one ? '' : mk.map(st => box(tm[st].pr, 0, true, true)).join('')}<td class="num">${money(tot.rev)}</td><td class="num">${money(tot.sp)}</td><td class="num">${roas(tot.rev, tot.sp)}</td><td class="num">${mg(tot.pr, tot.rev)}</td>${box(tot.pr, 0, true)}${g === 'day' ? '<td></td>' : ''}</tr>`;
     const body = rows.map(b => { const endW = g === 'day' && (P(b.k).getUTCDay() === 0 || b.k === pr[pr.length - 1].k);
-      return `<tr${b.fix ? ' title="US order-edit refund bug corrected on this day"' : ''}${endW ? ' class="wend"' : ''}><td class="l">${LAB[g](b.k)}</td>${one ? '' : mk.map(st => box(b.st[st] ? b.st[st].pr : null, scale[st], false, true)).join('')}
+      return `<tr${b.fix ? ` title="${esc((corrDays[b.k] || []).flatMap(x => x.notes || []).join(' · ') || 'Profit corrected on this day')}"` : ''}${endW ? ' class="wend"' : ''}><td class="l">${LAB[g](b.k)}</td>${one ? '' : mk.map(st => box(b.st[st] ? b.st[st].pr : null, scale[st], false, true)).join('')}
         <td class="num">${money(b.rev)}</td><td class="num">${money(b.sp)}</td><td class="num">${roas(b.rev, b.sp)}</td><td class="num">${mg(b.pr, b.rev)}</td>${box(b.pr, scale.T, true)}${g === 'day' ? (endW ? box(wk[monday(b.k)], scale.W, true) : '<td></td>') : ''}</tr>`; }).join('');
     h += `<div class="chart-top" style="margin-top:20px"><h2 class="sec" style="margin:0">Profit per ${g} <small>newest first · scroll inside the table</small></h2>${infoBtn('ptab')}</div>
       <div class="hsheet" style="max-height:${Math.round(560 * Z.h)}px"><table class="hdaily"><thead><tr><th class="l">${g === 'day' ? 'Date' : g[0].toUpperCase() + g.slice(1)}</th>${head}${g === 'day' ? '<th>Week</th>' : ''}</tr>${totRow}</thead><tbody>${body}</tbody></table></div>
@@ -1518,7 +1522,7 @@ function pRoad() {
   const cs = [...ats.values()].sort((x, y) => y.sp - x.sp).slice(0, 80);
   return `<div class="page-head"><div><div class="kicker">Win bar: $10,000 spend across all markets</div><h1>Road to $10k</h1></div><div class="meta">1 Jan – ${fmtD(D.today)} · all markets · USD</div></div>
   <div class="note" style="margin:-8px 0 16px">A concept wins when it passes $10,000 of spend across every market. Spend here covers 2026 so far (1 Jan onward), so winners from 2025 show less than their lifetime total.</div>
-  <div class="tbl-wrap"><table><thead><tr><th>#</th><th class="l">Concept</th><th class="l">People</th><th>Spend</th><th class="l">Progress</th><th>FC ROAS</th><th>Triple</th><th>Platform</th></tr></thead><tbody>
+  <div class="tbl-wrap"><table><thead><tr><th>#</th><th class="l">Concept</th><th class="l">People</th><th>Spend</th><th class="l">Progress</th><th>FC ROAS</th><th>Triple</th><th>C&amp;D</th></tr></thead><tbody>
   ${cs.map((c, i) => { const p = Math.min(1, c.sp / WIN_BAR), win = c.sp >= WIN_BAR;
     return `<tr data-c="${esc(c.key)}" style="cursor:pointer"><td>${i + 1}</td><td class="l"><b>${esc(c.id || '')}</b> ${esc(c.title)} ${win ? '<span class="pill gold">🏆 WINNER</span>' : ''}</td>
     <td class="l muted">${esc([c.editor || c.designer, c.strategist].filter(Boolean).join(' · '))}</td><td>$${int(c.sp)}</td>
@@ -1611,8 +1615,8 @@ function pInsights() {
 function pGuide() {
   return `<div class="page-head"><div><div class="kicker">For designers, editors and strategists</div><h1>How to read this</h1></div></div><div class="guide">
   <h3>Dates</h3><p>The hub opens on <b>this week</b> (Monday to today). Switch to last week, this month, last month, the last 7 or 30 days, or pick any two dates. Every number is compared with the same dates one period earlier.</p>
-  <h3>Three ROAS numbers, one verdict</h3><p><b style="color:var(--gold)">First Click</b> credits the ad that <i>started</i> the customer's journey: it decides whether an ad gets scaled. <b>Triple</b> spreads credit across the journey. <b>Platform</b> is what Meta reports about itself. <span class="good">Green</span> means at or above the target in the control panel (default: the account average for the same dates), <span class="bad">red</span> below.</p>
-  <ul><li><span class="pill green">Acquirer</span> First Click holds close to Platform: the ad brings in new people. Iterate on these.</li><li><span class="pill blue">Closer</span> Platform far above First Click: mostly finishes journeys other ads started.</li></ul>
+  <h3>Three ROAS numbers, one verdict</h3><p><b style="color:var(--gold)">First Click</b> credits the ad that <i>started</i> the customer's journey: it decides whether an ad gets scaled. <b>Triple</b> spreads credit across the journey. <b>C&amp;D</b> (Clicks &amp; Deterministic Views) credits every click and every verified view along the journey: how the ad works across the whole funnel. <span class="good">Green</span> means at or above the target in the control panel (default: the account average for the same dates), <span class="bad">red</span> below.</p>
+  <ul><li><span class="pill green">Acquirer</span> First Click holds close to C&amp;D: the ad brings in new people. Iterate on these.</li><li><span class="pill blue">Closer</span> C&amp;D far above First Click: earns its credit from later clicks and views in journeys other ads started.</li></ul>
   <h3>Videos</h3><p>Hover a video card to preview it, click to watch with sound, every hook and every country. <b>Hook</b> = 3-second views ÷ impressions. <b>Hold</b> = ThruPlays ÷ 3-second views. <b>Link CTR</b> = outbound clicks ÷ impressions. All follow the selected dates.</p>
   <h3>Where the numbers come from</h3><p>All of it is pulled every day from Triple Whale: revenue, spend, profit and orders from the Summary page, ad-level spend and revenue from pixel attribution (lifetime window) on Meta. USD by default with Triple Whale's own rates; Net profit adds back Australia's custom expenses.</p>
   <h3>How you get credit on the leaderboard</h3><p>The hub reads the <b>ad name</b>: videos credit the editor and strategist in the name, statics the designer and strategist. If your name is missing, the ad does not count for you.</p></div>`;
@@ -1720,9 +1724,9 @@ function cvName(p) {
 function pConv() {
   const X = D.conv;
   const top = freshBar() + `<div class="page-head"><div><div class="kicker">Funnels · landing pages · product pages · A/B tests</div><h1>Website conversion</h1></div>
-    <div class="meta">${FLAGS[S.market]} ${S.market === 'ALL' ? 'All markets combined' : S.market} · ${curCode()}</div></div>`;
+    <div class="meta">${FLAGS[S.market]} ${mName(S.market)} · ${curCode()}</div></div>`;
   if (!X) return top + '<div class="empty">The conversion data is not in this build yet.</div>';
-  const mk = Object.keys(X.stores).filter(st => S.market === 'ALL' || st === S.market);
+  const mk = Object.keys(X.stores).filter(st => inMkt(S.market, st));
   // any period + any comparison (Andy 2026-11-11): daily rows per page and per device since 1 Jan 2025
   const [a, b] = R(), [ca, cb] = compareRange(a, b), X0 = (Object.values(X.stores)[0] || {}).d0 || '2025-01-01', xEnd = (Object.values(X.stores)[0] || {}).end || D.today;
   const di = d => nDays(X0, d) - 1, [ia, ib, ja, jb] = [di(a), di(b), di(ca), di(cb)];
@@ -1863,7 +1867,7 @@ function openConcept(key, onlyStore) {
     ${vids.length ? `<div style="padding:16px 20px 0"><video class="player" id="dPlayer" controls playsinline autoplay src="${esc(vids[0].ad.v)}" poster="${esc(vids[0].ad.th || '')}"></video>
       ${vids.length > 1 ? `<div class="vlist">${vids.slice(0, 12).map((x, i) => `<button class="btn ghost sm ${i === 0 ? 'on' : ''}" data-v="${esc(x.ad.v)}">${FLAGS[x.ad.s]} ${esc(x.ad.hook || 'cut ' + (i + 1))}</button>`).join('')}</div>` : ''}</div>` : `<div style="padding:16px 20px 0"><a href="${esc(c.thumb || '')}" target="_blank" rel="noopener" title="Open the image on its own"><img class="dr-big" src="${esc(c.thumb || '')}" alt="${esc(c.title)}"></a></div>`}
     <div class="dr-head"><div style="min-width:0">
-    <div class="muted" style="font-size:12px">${esc(c.id || '')} · ${c.kind === 'VID' ? 'Video' : 'Static'} ${(() => { const i = firstLive().get(c.key); return i > 0 ? '· first spend ' + fmtD(D.days[i]) : ''; })()} · ${mkt === 'ALL' ? 'all countries' : mkt}</div><h3>${esc(c.title)}</h3>
+    <div class="muted" style="font-size:12px">${esc(c.id || '')} · ${c.kind === 'VID' ? 'Video' : 'Static'} ${(() => { const i = firstLive().get(c.key); return i > 0 ? '· first spend ' + fmtD(D.days[i]) : ''; })()} · ${mName(mkt, 'all countries')}</div><h3>${esc(c.title)}</h3>
     <div class="muted" style="font-size:12.5px">${esc([c.editor && 'Editor ' + c.editor, c.designer && 'Designer ' + c.designer, c.strategist && 'Strategist ' + c.strategist].filter(Boolean).join(' · '))}</div>
     <div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap"><span class="pill ${ROLE[c.role][1]}">${ROLE[c.role][0]}</span> ${tags}</div></div></div>
     <div class="dr-body">${roas3(c.r)}
@@ -1886,7 +1890,7 @@ function openConcept(key, onlyStore) {
     <div class="card chart-card"><div class="chart-wrap" style="height:150px"><canvas id="chDr"></canvas></div></div>
     <h2 class="sec" style="font-size:20px">Every hook &amp; country</h2>
     ${variants.map(x => `<div class="card" style="padding:12px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap"><b>${FLAGS[x.ad.s]} ${x.ad.s} ${esc(x.ad.hook || '')}</b>
-      <span style="font-size:12px">Spend <b>${money(x.sp)}</b> · FC <b class="${rc(x.sp ? x.fc / x.sp : 0, 'fc')}">${x2(x.sp ? x.fc / x.sp : 0)}</b> · Triple <b class="${rc(x.sp ? x.ta / x.sp : 0, 'ta')}">${x2(x.sp ? x.ta / x.sp : 0)}</b> · Platform ${x2(x.sp ? x.pr / x.sp : 0)}</span></div>
+      <span style="font-size:12px">Spend <b>${money(x.sp)}</b> · FC <b class="${rc(x.sp ? x.fc / x.sp : 0, 'fc')}">${x2(x.sp ? x.fc / x.sp : 0)}</b> · Triple <b class="${rc(x.sp ? x.ta / x.sp : 0, 'ta')}">${x2(x.sp ? x.ta / x.sp : 0)}</b> · C&amp;D ${x2(x.sp ? x.pr / x.sp : 0)}</span></div>
       <div class="name-box">${esc(x.ad.n)}</div><div style="display:flex;gap:6px;flex-wrap:wrap">${x.ad.v ? `<button class="btn ghost sm" data-v="${esc(x.ad.v)}">▶ Watch</button>` : ''}<button class="btn ghost sm" data-copy="${esc(x.ad.n)}">Copy name</button>
       ${act && x.ad.id ? `<a class="btn ghost sm" style="text-decoration:none" target="_blank" rel="noopener" href="https://adsmanager.facebook.com/adsmanager/manage/ads?act=${act[1]}&selected_ad_ids=${encodeURIComponent(x.ad.id)}">Ads Manager ↗</a>` : ''}
       ${x.ad.v ? `<a class="btn ghost sm" style="text-decoration:none" href="${esc(x.ad.v)}" download target="_blank" rel="noopener">Download mp4</a>` : ''}</div></div>`).join('')}
