@@ -754,7 +754,7 @@ function bonusOf(c, mi) { // per creative for month index mi: earned (new), earn
 const bnPaidIdx = () => { const ms = HL.bonus.months, cur = D.today.slice(0, 7); let i = ms.indexOf(cur); if (i < 0) i = ms.length; return i - 1; };
 // 2026-11-17: real payments (tracker ledger + Damien's 11 Nov round from the invoicing channels), so a missed ad shows as owed
 const paidOf = c => c.paid || 0;
-const owedOf = c => { const i = bnPaidIdx(); return i >= 0 ? Math.max(0, bonusOf(c, i).ent - paidOf(c)) : 0; };
+const owedOf = c => 0; // 2026-11-17 (Andy): Damien's rounds are final; an ad he did not pay is paid when it qualifies in a later round
 function bonusWhy(c, mi) {
   const r = c.m[mi], p = mi ? c.m[mi - 1] : null, B = HL.bonus, out = [];
   if (r[0] <= '2026-09') return 'paid under the rules of the time (tracker payment log)';
