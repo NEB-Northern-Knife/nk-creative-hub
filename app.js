@@ -744,7 +744,9 @@ const BN = {m:null, open:{}};
 function bonusOf(c, mi) { // per creative for month index mi: earned (new), earned (old rules), entitlement at month end
   let bestN = 0, bestO = 0, pn = 0, po = 0;
   for (let i = 0; i <= mi; i++) { const r = c.m[i]; pn = bestN; po = bestO; bestN = Math.max(bestN, r[5] || 0); bestO = Math.max(bestO, r[7] || 0); }
-  const r = c.m[mi], earned = bestN - pn, oldE = Math.min(earned, Math.max(0, bestO - po));
+  // 2026-11-17: the amount comes from the pipeline, booked in the round it was paid (Jul to Sep: tracker payment log under
+  // the rules of the time; Oct: Damien's 11 Nov new-rules round; Nov on: new-rule climbs above what the ad already got)
+  const r = c.m[mi], earned = r[8] || 0, oldE = r[0] <= '2026-09' ? earned : Math.min(earned, Math.max(0, bestO - po));
   return {r, earned, oldE, extra:earned - oldE, ent:bestN, entOld:bestO};
 }
 // Andy 2026-11-11: "we paid all the bonuses already", catch-up included. Bonuses go out at the start of each month for the
@@ -755,6 +757,8 @@ const paidOf = c => c.paid || 0;
 const owedOf = c => { const i = bnPaidIdx(); return i >= 0 ? Math.max(0, bonusOf(c, i).ent - paidOf(c)) : 0; };
 function bonusWhy(c, mi) {
   const r = c.m[mi], p = mi ? c.m[mi - 1] : null, B = HL.bonus, out = [];
+  if (r[0] <= '2026-09') return 'paid under the rules of the time (tracker payment log)';
+  if (r[0] === '2026-10' && r[4]) out.push('October round (Damien, 11 Nov), new rules incl. catch-up');
   if (r[4] && (!p || p[4] !== r[4])) { const t = B.tiers.find(x => x[0] === r[4]); out.push(`reached ${r[4]} ($${Math.round(t[1] / 1000)}k spend)${p && p[4] ? ' from ' + p[4] : ''}`); }
   if (r[4] && r[2] < B.oldRoasMin) out.push(r[2] >= B.roasMin ? `First Click ${r[2].toFixed(2)}, passes at 1.9` : `Triple Attribution ${r[3].toFixed(2)} (First Click ${r[2].toFixed(2)})`);
   if (r[4] === 'S+' || r[4] === 'S++') out.push('new top tier');
