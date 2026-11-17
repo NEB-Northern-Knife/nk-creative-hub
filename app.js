@@ -51,7 +51,7 @@ async function login(pw) {
   D = bd; PR = bd.production || null; if (PR && PR.trybe && !PR._tb) { PR.videos = PR.videos.concat(PR.trybe); PR._tb = 1; } // Andy 2026-11-12: every Trybe creator video is in the list
   ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
-const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['owner'], health:['owner'], conv:['strategist','owner']};
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','owner'], health:['owner'], trybe:['owner'], conv:['strategist','owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev', cmp:'prev', cfrom:null, cto:null};
 const charts = {};
@@ -314,9 +314,10 @@ const ICONS = {
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
 ICONS.health = '<path d="M3 12h4l2-5 4 10 2-5h6"/>';
+ICONS.trybe = '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4l2 2 4-4"/><path d="M17 11h4M19 9v4"/>';
 ICONS.conv = '<path d="M3 4h18l-7 8v6l-4 2v-8z"/>';
 ICONS.copy = '<path d="M4 5h16M4 10h16M4 15h10"/><path d="M15 19l2 2 4-4"/>';
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['copy','Copy bank'],['markets','Markets'],['conv','Website conversion'],['health','Business health'],
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['trybe','Trybe creators'],['copy','Copy bank'],['markets','Markets'],['conv','Website conversion'],['health','Business health'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -476,7 +477,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, copy:pCopy, markets:pMarkets, conv:pConv, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, trybe:pTrybe, copy:pCopy, markets:pMarkets, conv:pConv, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireFresh();
@@ -1930,3 +1931,114 @@ async function start() {
 }
 start().catch(err => { $('#lockErr').textContent = 'Could not load data: ' + err.message; });
 })();
+
+/* ---------------- Trybe creators (Andy 2026-11-17, OWNER ONLY: data rides in health.bin) ----------------
+   "How many videos created this week vs the week before, how many signed up, how many submitted, the revenue, the ROAS,
+   the commission we pay... I want to see if we lose money or not." Source: Trybe connector snapshots, pipeline/trybe.py. */
+function pTrybe() {
+  const T = HL && HL.trybe;
+  let h = freshBar() + `<div class="page-head"><div><div class="kicker">Creator program · videos · sign-ups · money in and out</div><h1>Trybe creators</h1></div>
+    <div class="meta">🇺🇸 US · USD${T && T.pulled ? ' · Trybe pulled ' + esc(fmtD(T.pulled.slice(0, 10))) : ''}</div></div>`;
+  if (!T) return h + '<div class="empty">The Trybe data is not in this build yet.</div>';
+  const usd = (c, dec) => { const v = (c || 0) / 100, a = Math.abs(v); const s = dec !== undefined ? a.toLocaleString('en-US', {maximumFractionDigits:dec, minimumFractionDigits:dec}) : a >= 1e4 ? (a / 1e3).toFixed(1) + 'k' : Math.round(a).toLocaleString('en-US'); return (v < 0 ? '-' : '') + '$' + s; };
+  const GM = T.gm || 0, knife = +(LS('nkhub.trybeKnife') || 0) * 100; // cost of one free knife, cents (owner types it once)
+  const ro = p => p && p.spend_cents ? p.purchase_value_cents / p.spend_cents : null;
+  // money a period leaves us with on the ads: purchase value x gross margin - ad spend - creator pay (Trybe GMV not added: it overlaps)
+  const res = p => p ? Math.round((p.purchase_value_cents || 0) * GM - (p.spend_cents || 0) - (p.earnings_cents || 0)) : 0;
+  const W = T.weeks || [], ix = Math.max(0, Math.min(W.length - 1, S.tyw != null ? S.tyw : W.length - 1)), cw = W[ix] || {}, pw = W[ix - 1] || {};
+  const P0 = cw.perf || {}, P1 = pw.perf || {};
+  const partial = cw.s && nDays(cw.s, D.today) < 7;
+  const dl = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null) return '<span class="muted">no comparison</span>'; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
+    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(0)}%</span> <span class="muted">vs week before</span>`; };
+  const kp = (l, v, sub, cls = '', tip = '') => `<div class="card kpi"${tip ? ` title="${esc(tip)}"` : ''}><div class="lbl">${l}</div><div class="val num ${cls}">${v}</div><div class="delta">${sub}</div></div>`;
+  const grid = (html, min = 170) => `<div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(${min}px,1fr));gap:12px;margin-top:12px">${html}</div>`;
+  const wl = w => w && w.s ? 'w/c ' + fmtD(w.s) : '';
+  h += `<div class="ty-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px"><b>Week</b>
+    <select id="tyW" class="btn ghost sm">${W.map((w, i) => `<option value="${i}" ${i === ix ? 'selected' : ''}>${wl(w)}${i === W.length - 1 ? ' (this week)' : ''}</option>`).join('')}</select>
+    <span class="muted">${partial ? 'Week still running: videos and sign-ups are live, money only has the days Trybe has closed (UTC, up to yesterday).' : 'Monday to Sunday, UTC.'} Compared with ${wl(pw) || 'nothing'}.</span></div>`;
+
+  // ---------- the week
+  h += `<h2 class="sec">The week</h2>` + grid(
+    kp('Videos created', int(cw.videos), dl(cw.videos, pw.videos)) +
+    kp('Creators who submitted', int(cw.submitters), dl(cw.submitters, pw.submitters)) +
+    kp('First-time submitters', int(cw.first), dl(cw.first, pw.first)) +
+    kp('New sign-ups', int(cw.signups), dl(cw.signups, pw.signups), '', 'Creators who joined the roster this week (still active today)') +
+    kp('Approved', int(cw.approved), `${int(cw.pending)} pending · ${int(cw.revision_requested)} revision · ${int(cw.rejected)} rejected`) +
+    kp('Videos running as ads', int(P0.active_submissions), dl(P0.active_submissions, P1.active_submissions)));
+  h += grid(
+    kp('Ad spend on Trybe videos', usd(P0.spend_cents), dl(P0.spend_cents, P1.spend_cents, true)) +
+    kp('Meta purchase value', usd(P0.purchase_value_cents), dl(P0.purchase_value_cents, P1.purchase_value_cents), 'gold', 'Revenue Meta reports on the ads that use Trybe videos') +
+    kp('ROAS (Meta)', x2(ro(P0)), dl(ro(P0), ro(P1))) +
+    kp('Trybe GMV', usd(P0.trybe_gmv_cents), `${int(P0.trybe_conversions)} orders · ${dl(P0.trybe_gmv_cents, P1.trybe_gmv_cents)}`, '', 'Sales Trybe attributes to the creators (tracking links + ads). Can overlap with the Meta number, never add them.') +
+    kp('Creator pay', usd(P0.earnings_cents), dl(P0.earnings_cents, P1.earnings_cents, true), '', 'Commission + retainers + bonuses Trybe books for the week') +
+    kp('Left after ads + pay', usd(res(P0)), `<span class="muted">purchase value × ${pct(GM, 0)} margin − spend − pay</span>`, res(P0) >= 0 ? 'up' : 'down'));
+
+  // ---------- do we lose money (program to date)
+  const A = T.all || {}, CR = T.creators || [];
+  const smp = CR.reduce((o, c) => { const s = c.sm || {}; o.f += s.fulfilled || 0; o.a += s.approved || 0; o.o += s.overdue || 0; return o; }, {f:0, a:0, o:0});
+  const resA = res(A) - smp.f * knife, comm = A.trybe_gmv_cents ? A.earnings_cents / A.trybe_gmv_cents : null;
+  h += `<h2 class="sec">Do we lose money? Since the program started${T.allRange && T.allRange[0] ? ` (${fmtD(T.allRange[0])} to ${fmtD(T.allRange[1])})` : ''}</h2>`;
+  h += grid(
+    kp('Ad spend', usd(A.spend_cents), `${int(A.ads)} ads`) +
+    kp('Meta purchase value', usd(A.purchase_value_cents), `${int(A.purchases)} purchases`, 'gold') +
+    kp('ROAS (Meta)', x2(ro(A)), `<span class="muted">break-even at ${GM ? x2(1 / GM) : '–'} before creator pay</span>`, ro(A) >= (GM ? 1 / GM : 9) ? 'up' : 'down') +
+    kp('Trybe GMV', usd(A.trybe_gmv_cents), `${int(A.trybe_conversions)} orders`) +
+    kp('Creator pay', usd(A.earnings_cents), comm != null ? `<span class="muted">${pct(comm, 1)} of Trybe GMV</span>` : '') +
+    kp('Free knives sent', int(smp.f), `<span class="muted">${int(smp.a)} approved · ${int(smp.o)} overdue (owe a video)</span>`) +
+    kp('Left after ads, pay' + (knife ? ', knives' : ''), usd(resA), `<span class="muted">${pct(GM, 0)} US gross margin (last 90 days)</span>`, resA >= 0 ? 'up' : 'down'), 160);
+  h += `<div class="card" style="margin-top:12px;padding:14px 16px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <span>Cost of one free knife sent (product + shipping):</span><input id="tyK" type="number" min="0" step="1" value="${knife ? knife / 100 : ''}" placeholder="type it once" style="width:110px" class="btn ghost sm">
+    <span class="muted">${knife ? `${int(smp.f)} knives × ${usd(knife)} = ${usd(smp.f * knife)} counted above.` : 'Not counted yet: type the cost and the free knives are taken off the result.'} Saved in this browser.</span></div>
+    <div class="muted" style="margin-top:8px">How the result is worked out: Meta purchase value on the ads that run Trybe videos × US gross margin (Triple Whale revenue minus product cost, last 90 days) − the ad spend − what Trybe pays the creators${knife ? ' − free knives' : ''}. Shipping, fees and returns are not taken off, so the real figure is lower. Trybe GMV is shown apart because it overlaps with the ad sales.</div></div>`;
+
+  // ---------- weekly trend
+  h += `<h2 class="sec">Week by week</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
+    <div class="card chart-card"><div class="ch-top"><div><h3>Videos and sign-ups</h3><div class="sub">Videos by review status, sign-ups as a line</div></div></div><div class="chart-wrap" style="height:260px"><canvas id="tyC1"></canvas></div></div>
+    <div class="card chart-card"><div class="ch-top"><div><h3>Money</h3><div class="sub">Spend + creator pay against purchase value; line = what is left</div></div></div><div class="chart-wrap" style="height:260px"><canvas id="tyC2"></canvas></div></div></div>`;
+  const rows = W.map((w, i) => { const p = w.perf || {}; return `<tr class="${i === ix ? 'on' : ''}"><td class="l">${wl(w)}${i === W.length - 1 ? ' <span class="muted">(running)</span>' : ''}</td><td>${int(w.signups)}</td><td>${int(w.submitters)}</td><td>${int(w.first)}</td><td>${int(w.videos)}</td><td>${int(w.approved)}</td>
+    <td>${usd(p.spend_cents)}</td><td>${usd(p.purchase_value_cents)}</td><td class="${ro(p) >= 2 ? 'up' : ro(p) ? 'down' : ''}">${x2(ro(p))}</td><td>${usd(p.trybe_gmv_cents)}</td><td>${usd(p.earnings_cents)}</td><td class="${res(p) >= 0 ? 'up' : 'down'}">${w.perf ? usd(res(p)) : '–'}</td></tr>`; }).reverse().join('');
+  h += `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Week</th><th>Sign-ups</th><th>Submitted</th><th>First time</th><th>Videos</th><th>Approved</th><th>Ad spend</th><th>Purchase value</th><th>ROAS</th><th>Trybe GMV</th><th>Creator pay</th><th>Left</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  // ---------- creators
+  const cs = CR.map(c => ({...c, r:c.all || {}})).sort((a, b) => (b.r.sp || 0) - (a.r.sp || 0) || (b.r.e || 0) - (a.r.e || 0) || (b.subs.n || 0) - (a.subs.n || 0));
+  const showAll = S.tyAll, list = showAll ? cs : cs.slice(0, 25);
+  const cres = r => Math.round((r.pv || 0) * GM - (r.sp || 0) - (r.e || 0));
+  h += `<h2 class="sec">Creators (${int(CR.length)} on the roster)</h2><div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Creator</th><th class="l">Program</th><th>Joined</th><th>Videos</th><th>Approved</th><th>Free knives</th><th>Owes video</th><th>Ad spend</th><th>Purchase value</th><th>ROAS</th><th>Trybe GMV</th><th>Paid to them</th><th>Left</th></tr></thead><tbody>
+    ${list.map(c => { const r = c.r, rr = r.sp ? r.pv / r.sp : null, s = c.sm || {}; return `<tr><td class="l">${esc(c.n)}</td><td class="l muted">${esc((c.p || []).join(', ').replace(/NorthernKnife |Northernknife /g, ''))}</td><td>${c.j ? fmtD(c.j) : ''}</td><td>${int(c.subs.n)}</td><td>${int(c.subs.approved)}</td>
+      <td>${int(s.fulfilled)}</td><td class="${s.overdue ? 'down' : ''}">${s.overdue ? int(s.overdue) : ''}</td><td>${usd(r.sp)}</td><td>${usd(r.pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${usd(r.g)}</td><td>${usd(r.e)}</td><td class="${cres(r) >= 0 ? 'up' : 'down'}">${r.sp || r.e ? usd(cres(r)) : ''}</td></tr>`; }).join('')}</tbody></table></div>
+    ${cs.length > 25 ? `<button class="btn ghost sm" id="tyAll" style="margin-top:10px">${showAll ? 'Show top 25' : 'Show all ' + cs.length}</button>` : ''}`;
+
+  // ---------- top videos (last 30 days)
+  const SP = T.subs || {}, SR = SP.rows || [];
+  if (SR.length) {
+    const g = (r, ...ks) => { for (const kk of ks) if (r[kk] != null) return r[kk]; return null; };
+    h += `<h2 class="sec">Trybe videos in ads, last 30 days${SP.s ? ` (${fmtD(SP.s)} to ${fmtD(SP.e)})` : ''}</h2><div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Video</th><th class="l">Creator</th><th>Spend</th><th>Purchase value</th><th>ROAS</th><th>Purchases</th><th>Trybe GMV</th><th>Paid to creator</th><th>Thumbstop</th><th class="l">Hook · style</th></tr></thead><tbody>
+      ${SR.slice(0, S.tySubAll ? 200 : 20).map(r => { const sp = g(r, 'sp', 'spend_cents') || 0, pv = g(r, 'pv', 'purchase_value_cents') || 0, rr = sp ? pv / sp : null, th = g(r, 'ts', 'thumbstop', 'thumbstop_rate'), tg = r.tg || {};
+        return `<tr><td class="l">${esc(g(r, 't', 'trybe_id') || '')}</td><td class="l">${esc(g(r, 'c', 'creator', 'creator_name') || '')}</td><td>${usd(sp)}</td><td>${usd(pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${int(g(r, 'pu', 'purchases'))}</td><td>${usd(g(r, 'g', 'trybe_gmv_cents'))}</td><td>${usd(g(r, 'ce', 'creator_earnings_cents'))}</td>
+        <td>${th != null ? pct(th > 1 ? th / 100 : th, 0) : '–'}</td><td class="l muted">${esc([tg.h, tg.s].filter(Boolean).join(' · ').replace(/_/g, ' '))}</td></tr>`; }).join('')}</tbody></table></div>
+      ${SR.length > 20 ? `<button class="btn ghost sm" id="tySubAll" style="margin-top:10px">${S.tySubAll ? 'Show top 20' : 'Show all ' + SR.length}</button>` : ''}`;
+  }
+  h += `<div class="note">Source: Trybe (the creator platform), pulled with each hub refresh. Videos = every submission in any review status, by the day it was sent. Sign-ups = creators active on the roster today, by join date (people who left are not counted). Ad numbers are what Meta reports on ads using Trybe videos; Trybe GMV is Trybe's own attribution. Creator pay = commission + retainers + bonuses Trybe books. Owner only.</div>`;
+
+  afterRender.push(() => {
+    const sel = $('#tyW'); if (sel) sel.onchange = () => { S.tyw = +sel.value; render(); };
+    const kk = $('#tyK'); if (kk) kk.onchange = () => { LS('nkhub.trybeKnife', kk.value ? String(+kk.value) : null); render(); };
+    const al = $('#tyAll'); if (al) al.onclick = () => { S.tyAll = !S.tyAll; render(); };
+    const sa = $('#tySubAll'); if (sa) sa.onclick = () => { S.tySubAll = !S.tySubAll; render(); };
+    const lab = W.map(w => fmtD(w.s)), opt = (stack, money) => ({responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+      plugins:{legend:{labels:{color:'#cfcfcf', boxWidth:10}}, tooltip:{callbacks:money ? {label:c => c.dataset.label + ': $' + Math.round(c.raw).toLocaleString('en-US')} : {}}},
+      scales:{x:{stacked:stack, ticks:{color:'#9a9a9a'}, grid:{display:false}}, y:{stacked:stack, ticks:{color:'#9a9a9a', callback:v => money ? '$' + (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) : v}, grid:{color:'#ffffff12'}}}});
+    const c1 = $('#tyC1'); if (c1) charts.ty1 = new Chart(c1, {type:'bar', data:{labels:lab, datasets:[
+      {type:'line', label:'Sign-ups', data:W.map(w => w.signups || 0), borderColor:'#c7b48b', backgroundColor:'#c7b48b', borderWidth:2, pointRadius:2, tension:.25, stack:'l'},
+      {label:'Approved', data:W.map(w => w.approved || 0), backgroundColor:'#52b788', borderRadius:3, stack:'v'},
+      {label:'Pending', data:W.map(w => w.pending || 0), backgroundColor:'#6c8ebf', borderRadius:3, stack:'v'},
+      {label:'Revision', data:W.map(w => w.revision_requested || 0), backgroundColor:'#d9a441', borderRadius:3, stack:'v'},
+      {label:'Rejected', data:W.map(w => w.rejected || 0), backgroundColor:'#e0605a', borderRadius:3, stack:'v'}]}, options:opt(true)});
+    const c2 = $('#tyC2'); if (c2) charts.ty2 = new Chart(c2, {type:'bar', data:{labels:lab, datasets:[
+      {type:'line', label:'Left after ads + pay', data:W.map(w => res(w.perf) / 100), borderColor:'#c7b48b', backgroundColor:'#c7b48b', borderWidth:2, pointRadius:2, tension:.25, stack:'l'},
+      {label:'Purchase value', data:W.map(w => ((w.perf || {}).purchase_value_cents || 0) / 100), backgroundColor:'#52b788', borderRadius:3, stack:'in'},
+      {label:'Ad spend', data:W.map(w => ((w.perf || {}).spend_cents || 0) / 100), backgroundColor:'#e0605a', borderRadius:3, stack:'out'},
+      {label:'Creator pay', data:W.map(w => ((w.perf || {}).earnings_cents || 0) / 100), backgroundColor:'#d9a441', borderRadius:3, stack:'out'}]}, options:opt(true, true)});
+  });
+  return h;
+}
