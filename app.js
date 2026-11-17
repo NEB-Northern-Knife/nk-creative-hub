@@ -750,7 +750,9 @@ function bonusOf(c, mi) { // per creative for month index mi: earned (new), earn
 // Andy 2026-11-11: "we paid all the bonuses already", catch-up included. Bonuses go out at the start of each month for the
 // month before, so everything a creative was entitled to at the end of last month counts as paid (or the ledger, if higher).
 const bnPaidIdx = () => { const ms = HL.bonus.months, cur = D.today.slice(0, 7); let i = ms.indexOf(cur); if (i < 0) i = ms.length; return i - 1; };
-const paidOf = c => { const i = bnPaidIdx(); return Math.max(c.paid || 0, i >= 0 ? bonusOf(c, i).ent : 0); };
+// 2026-11-17: real payments (tracker ledger + Damien's 11 Nov round from the invoicing channels), so a missed ad shows as owed
+const paidOf = c => c.paid || 0;
+const owedOf = c => { const i = bnPaidIdx(); return i >= 0 ? Math.max(0, bonusOf(c, i).ent - paidOf(c)) : 0; };
 function bonusWhy(c, mi) {
   const r = c.m[mi], p = mi ? c.m[mi - 1] : null, B = HL.bonus, out = [];
   if (r[4] && (!p || p[4] !== r[4])) { const t = B.tiers.find(x => x[0] === r[4]); out.push(`reached ${r[4]} ($${Math.round(t[1] / 1000)}k spend)${p && p[4] ? ' from ' + p[4] : ''}`); }
@@ -771,11 +773,12 @@ function openBonus(who, month) {
   $('#drawer').innerHTML = `<button class="close" id="dClose">✕</button><div class="dr-body bn-dr">
     <div class="kicker">Owner only · editor bonus${who ? ' · ' + esc(who) : ''}</div><h2>${money(tot)} <small class="muted" style="font-size:14px;font-weight:400">earned in ${monL(m)}${live ? ' so far' : ''}, paid early ${monL(nextMonth(m))}</small></h2>
     <div class="tabs-mini" id="bnM" style="margin:10px 0">${ms.slice(-6).map(x => `<button data-v="${x}" class="${x === m ? 'on' : ''}">${MON(x)}</button>`).join('')}</div>
+    ${(() => { const ow = names.flatMap(n => B.editors[n].map(c => ({n, c, o:owedOf(c)}))).filter(x => x.o > 0); return ow.length ? `<div class="card" style="padding:10px 12px;margin:8px 0;border-color:var(--red,#e0605a)"><b class="down">Not paid yet from earlier months: ${money(ow.reduce((x, y) => x + y.o, 0))}</b>${ow.map(x => `<div class="muted" style="font-size:12.5px">${esc(x.n)} · ${esc(x.c.cid)} ${esc(x.c.title)} · ${money(x.o)}</div>`).join('')}</div>` : ''; })()}
     ${tot && tot - oldT ? `<div class="muted" style="font-size:12.5px;margin-bottom:8px">${oldT ? money(oldT) + ' under the old rules too · ' : 'All of it '}<span class="gold">${oldT ? money(tot - oldT) + ' only' : 'only'} because of the new rules</span></div>` : ''}
     ${per.length ? per.map(x => `<div class="bn-ed"><div class="bn-eh"><b>${esc(x.n)}</b><span class="g-money">${money(x.sum)}</span></div>
       ${x.rows.map(r => `<div class="bn-ev"><b>${esc(r.c.cid)}</b> <span class="muted">${esc(r.c.title)}</span><span class="bn-w">${esc(bonusWhy(r.c, mi))} · ${money(r.r[1])} spend</span><span class="bn-a">+${money(r.earned)}${r.extra ? ' <i class="gold">new rules</i>' : ''}</span></div>`).join('')}</div>`).join('')
       : `<div class="empty">No creative reached a new tier in ${monL(m)}${who ? ' for ' + esc(who) : ''}.</div>`}
-    <div class="note">ROAS 1.9 in First Click or Triple Attribution, lifetime, US + UK + AU in USD. Tiers: $8k $50 · $15k $100 · $30k $175 · $50k $250 · $75k $300 · $125k $400 · $200k $450. A creative earns in a month what its tier gained that month (a climb pays the difference). Bonuses up to last month are paid.</div></div>`;
+    <div class="note">Same logic as the bonuses Damien paid on 11 Nov: ROAS 1.9 in First Click or Triple Attribution, lifetime, every market (US UK AU CA DE NL) in USD, every video ad carrying the NK id. Tiers: $8k $50 · $15k $100 · $30k $175 · $50k $250 · $75k $300 · $125k $400 · $200k $450. A creative earns in a month what its tier gained that month (a climb pays the difference). Paid = tracker ledger + Damien's 11 Nov round.</div></div>`;
   $('#drawer').classList.add('open'); $('#scrim').classList.add('open'); $('#drawer').scrollTop = 0; $('#dClose').onclick = closeDrawer;
   $('#bnM').onclick = ev => { const bt = ev.target.closest('button'); if (bt) openBonus(who, bt.dataset.v); };
 }
