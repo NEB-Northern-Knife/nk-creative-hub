@@ -51,7 +51,7 @@ async function login(pw) {
   D = bd; PR = bd.production || null; if (PR && PR.trybe && !PR._tb) { PR.videos = PR.videos.concat(PR.trybe); PR._tb = 1; } // Andy 2026-11-12: every Trybe creator video is in the list
   ACCESS = grant.role; REV = !!rv; UNL = !!ow; HL = grant.role === 'owner' ? hl : null; memo.clear();
 }
-const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','owner'], health:['owner'], trybe:['owner'], conv:['strategist','owner']};
+const PAGE_ROLES = {statics:['strategist','owner'], insights:['strategist','owner'], reports:['editorlead','owner'], health:['owner'], trybe:['owner'], bonus:['owner'], conv:['strategist','owner']};
 const canSee = p => !PAGE_ROLES[p] || PAGE_ROLES[p].includes(ACCESS);
 const S = {page:'hq', preset:'week', from:null, to:null, market:'ALL', model:'fc', cur:'USD', min:300, target:'auto', board:'editors', ins:'product', more:false, trend:'rev', cmp:'prev', cfrom:null, cto:null};
 const charts = {};
@@ -314,10 +314,11 @@ const ICONS = {
   guide:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/>'
 };
 ICONS.health = '<path d="M3 12h4l2-5 4 10 2-5h6"/>';
+ICONS.bonus = '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .8-3 2s1.3 1.8 3 2 3 .8 3 2-1.3 2-3 2c-1.4 0-2.6-.6-3-1.6M12 6.5v11"/>';
 ICONS.trybe = '<circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 4l2 2 4-4"/><path d="M17 11h4M19 9v4"/>';
 ICONS.conv = '<path d="M3 4h18l-7 8v6l-4 2v-8z"/>';
 ICONS.copy = '<path d="M4 5h16M4 10h16M4 15h10"/><path d="M15 19l2 2 4-4"/>';
-const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['production','Production'],['trybe','Trybe creators'],['copy','Copy bank'],['markets','Markets'],['conv','Website conversion'],['health','Business health'],
+const PAGES = [['hq','HQ overview'],['videos','Top videos'],['statics','Top statics'],['board','Leaderboard'],['reports','Editor reports'],['bonus','Bonus cards'],['production','Production'],['trybe','Trybe creators'],['copy','Copy bank'],['markets','Markets'],['conv','Website conversion'],['health','Business health'],
                ['rookies','Rookies'],['road','Road to $10k'],['insights','Creative insights'],['guide','How to read this']];
 
 function buildShell() {
@@ -477,7 +478,7 @@ function render() {
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
-  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, health:pHealth, production:pProduction, trybe:pTrybe, copy:pCopy, markets:pMarkets, conv:pConv, rookies:pRookies,
+  v.innerHTML = ({hq:pHQ, videos:() => pCreatives('VID'), statics:() => pCreatives('IMG'), board:pBoard, reports:pReports, bonus:pBonus, health:pHealth, production:pProduction, trybe:pTrybe, copy:pCopy, markets:pMarkets, conv:pConv, rookies:pRookies,
                   road:pRoad, insights:pInsights, guide:pGuide}[canSee(S.page) ? S.page : 'hq'] || pHQ)();
   wireRange();
   wireFresh();
@@ -861,6 +862,7 @@ function pReports() {
     return `<div class="card rs-card">
       <div class="rs-head"><div class="portrait sm"><span>${esc(initials(e.n))}</span></div><div style="min-width:0"><div class="rs-name">${esc(e.n)}</div>
         <div class="muted" style="font-size:12px">${e.cs.length} concepts live · ${e.launches} new · ${e.year} videos delivered in 2026 · <b style="color:var(--text)">${e.prod} editing now</b>${e.prodDE ? ` (${e.prodEN} EN + ${e.prodDE} 🇩🇪)` : ''}</div></div>
+        ${BB && BB.editors[e.n] ? `<button class="btn ghost sm" data-bnme="${esc(e.n)}" title="Owner preview of ${esc(e.n)}'s bonus card" style="margin-left:auto;margin-right:8px">Bonus ${MON(BB.months[bmsL])}: <b class="gold">$${Math.round(BB.editors[e.n].reduce((x, c) => x + (c.m[bmsL][8] || 0), 0))}</b></button>` : ''}
         <div class="rs-rank">#${idx + 1}<span>by spend</span></div></div>
       <div class="rs-stats">
         ${stat('Editing now', e.prod, chip(e.prod, team.prodPer), `${e.prodEN} English · ${e.prodDE} German 🇩🇪`)}
@@ -886,6 +888,7 @@ function pReports() {
   if (!eds.length) h += '<div class="empty">No editor activity in these dates.</div>';
   afterRender.push(() => { const t = $('#rsg'); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S.rsg = bt.dataset.v; render(); } }; });
   afterRender.push(() => document.querySelectorAll('[data-bonus]').forEach(el => el.onclick = () => openBonus(el.dataset.bonus)));
+  afterRender.push(() => document.querySelectorAll('[data-bnme]').forEach(el => el.onclick = () => { S.bnWho = el.dataset.bnme; S.page = 'bonus'; render(); window.scrollTo(0, 0); }));
   afterRender.push(() => eds.forEach((e, idx) => {
     charts['rs' + idx] = new Chart($('#rsW' + idx), {type:'bar', data:{labels:bks.map(x => x.label), datasets:[
       {type:'line', label:'Team average', data:team.bk.map(x => +x.toFixed(1)), borderColor:'#8a8a94', borderDash:[4, 4], borderWidth:1.5, pointRadius:rg === 'year' ? 3 : 0},
@@ -2044,6 +2047,60 @@ function pTrybe() {
       {label:'Ad spend', data:W.map(w => ((w.perf || {}).spend_cents || 0) / 100), backgroundColor:'#e0605a', borderRadius:3, stack:'out'},
       {label:'Creator pay', data:W.map(w => ((w.perf || {}).earnings_cents || 0) / 100), backgroundColor:'#d9a441', borderRadius:3, stack:'out'}]}, options:opt(true, true)});
   });
+  return h;
+}
+
+/* ---------------- personal bonus card (Andy 2026-11-17) ----------------
+   One card per editor with the bonus of the running month, what earned it, what is close to the next tier and every round
+   already paid. PREVIEW: owner only for now ("View as" picker); each editor gets his own password later, which will open
+   only his own card. Disclaimer always on top: Triple Whale data, built with AI, the manual end-of-month count is what pays. */
+const BN_TIERS_ED = [[8000, 50, 'C'], [15000, 100, 'B'], [30000, 175, 'A'], [50000, 250, 'S-'], [75000, 300, 'S'], [125000, 400, 'S+'], [200000, 450, 'S++']];
+const BN_PAID_ON = {'2026-07':'10 Aug', '2026-08':'9 Sep', '2026-09':'7 Oct', '2026-10':'11 Nov'};
+function bonusCard(name) {
+  const B = HL && HL.bonus, cs = (B && B.editors[name]) || [];
+  const ms = B ? B.months : [], mi = ms.length - 1, cur = ms[mi], monL = x => P(x + '-01').toLocaleDateString('en-GB', {month:'long', timeZone:'UTC'});
+  const usd0 = v => '$' + Math.round(v || 0).toLocaleString('en-US');
+  const now = cs.map(c => ({c, r:c.m[mi], d:c.m[mi][8] || 0})).filter(x => x.d > 0).sort((a, b) => b.d - a.d);
+  const total = now.reduce((x, y) => x + y.d, 0);
+  // close to the next tier: lifetime spend within reach, ROAS shown against 1.9
+  const near = cs.map(c => { const r = c.m[mi], sp = r[1], nx = BN_TIERS_ED.find(t => sp < t[0]); if (!nx) return null;
+      const okR = r[2] >= B.roasMin || r[3] >= B.roasMin, got = Math.max(c.paid || 0, ...c.m.map(x => x[5] || 0));
+      return {c, sp, nx, okR, r, gain:Math.max(0, nx[1] - got), share:sp / nx[0]}; })
+    .filter(x => x && x.share >= .5 && x.gain > 0 && x.r[1] > 0).sort((a, b) => b.share - a.share).slice(0, 6);
+  const rounds = ['2026-07', '2026-08', '2026-09', '2026-10'].map(m => [m, cs.reduce((x, c) => x + ((c.m.find(r => r[0] === m) || [])[8] || 0), 0)]);
+  const paidAds = cs.filter(c => (c.paid || 0) > 0).sort((a, b) => b.paid - a.paid);
+  const tierOf = r => r[4] ? `${r[4]}` : '–';
+  return `<div class="card bn-me" style="padding:18px 20px">
+    <div class="bn-disc" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:14px">
+      <b style="color:var(--gold)">Preview only.</b> This page runs on Triple Whale data and is built with AI, so the spend of some markets can load late, partly or wrong, and the amount below may not be exact.
+      Every bonus is checked by hand at the end of the month and that count is what gets paid. ${monL(cur)} bonuses are paid in early ${monL(nextMonth(cur))}, as usual.</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
+      <div><div class="kicker">${esc(name)} · bonus preview</div><div style="font-size:13px" class="muted">Your bonus for ${monL(cur)} so far</div>
+        <div class="num" style="font-size:44px;line-height:1.1;color:var(--gold)">${usd0(total)}</div><div class="muted" style="font-size:12px">paid early ${monL(nextMonth(cur))} after the manual check</div></div>
+      <div class="muted" style="font-size:12px;max-width:360px">How it works: every video you edited counts on its lifetime spend in all markets. It qualifies at 1.9 ROAS in First Click or Triple Attribution. Tiers $8k $50 · $15k $100 · $30k $175 · $50k $250 · $75k $300 · $125k $400 · $200k $450. When an ad climbs a tier you get the difference.</div></div>
+    <div class="rs-h" style="margin-top:16px">What earns it this month</div>
+    ${now.length ? now.map(x => `<div class="bn-ev"><b>${esc(x.c.cid)}</b> <span class="muted">${esc(x.c.title)}</span><span class="bn-w">tier ${tierOf(x.r)} · ${usd0(x.r[1])} spend · First Click ${x2(x.r[2])} · Triple ${x2(x.r[3])}</span><span class="bn-a">+${usd0(x.d)}</span></div>`).join('')
+      : '<div class="muted" style="font-size:13px">No ad reached a new tier yet this month.</div>'}
+    <div class="rs-h" style="margin-top:16px">Close to the next tier</div>
+    ${near.length ? near.map(x => `<div class="bn-ev"><b>${esc(x.c.cid)}</b> <span class="muted">${esc(x.c.title)}</span>
+      <span class="bn-w">${usd0(x.sp)} of ${usd0(x.nx[0])} for ${x.nx[2]} · ROAS ${x.okR ? '<span class="up">passes</span>' : '<span class="down">below 1.9</span>'} (FC ${x2(x.r[2])} · TA ${x2(x.r[3])})</span>
+      <span class="bn-a"><span class="bar" style="display:inline-block;width:70px;height:6px;vertical-align:middle;margin-right:6px"><i style="width:${Math.min(100, x.share * 100).toFixed(0)}%"></i></span>+${usd0(x.gain)}</span></div>`).join('')
+      : '<div class="muted" style="font-size:13px">No ad close to a new tier right now.</div>'}
+    <div class="rs-h" style="margin-top:16px">Bonuses already paid</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${rounds.map(([m, v]) => `<div class="card" style="padding:8px 12px;min-width:120px"><div class="muted" style="font-size:11px">${monL(m)} · paid ${BN_PAID_ON[m]}</div><b class="num">${usd0(v)}</b></div>`).join('')}</div>
+    ${paidAds.length ? `<div class="muted" style="font-size:12px;margin-top:8px">${paidAds.map(c => `${esc(c.cid)} ${usd0(c.paid)}`).join(' · ')}</div>` : ''}
+  </div>`;
+}
+function pBonus() {
+  const B = HL && HL.bonus;
+  let h = freshBar() + `<div class="page-head"><div><div class="kicker">Owner preview · what each editor will see with his own password</div><h1>Editor bonus cards</h1></div></div>`;
+  if (!B) return h + '<div class="empty">Bonus data is not in this build.</div>';
+  const names = Object.keys(B.editors).filter(n => n !== 'PDP' && B.editors[n].some(c => (c.paid || 0) > 0 || c.m.some(r => r[5] || r[1] >= 5000))).sort();
+  const who = names.includes(S.bnWho) ? S.bnWho : names[0];
+  h += `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0 14px"><b>View as</b><div class="tabs-mini" id="bnWho">${names.map(n => `<button data-v="${esc(n)}" class="${n === who ? 'on' : ''}">${esc(n)}</button>`).join('')}</div>
+    <span class="muted" style="font-size:12px">Editors cannot open this yet: their passwords are made but not switched on.</span></div>`;
+  h += bonusCard(who);
+  afterRender.push(() => { const el = $('#bnWho'); if (el) el.onclick = ev => { const b = ev.target.closest('button'); if (b) { S.bnWho = b.dataset.v; render(); } }; });
   return h;
 }
 
