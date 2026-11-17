@@ -1929,9 +1929,6 @@ async function start() {
     catch (err) { $('#lockErr').innerHTML = '<span class="bad">' + esc(err.message) + '</span>'; $('#loginBtn').disabled = false; $('#pwIn').select(); }
   };
 }
-start().catch(err => { $('#lockErr').textContent = 'Could not load data: ' + err.message; });
-})();
-
 /* ---------------- Trybe creators (Andy 2026-11-17, OWNER ONLY: data rides in health.bin) ----------------
    "How many videos created this week vs the week before, how many signed up, how many submitted, the revenue, the ROAS,
    the commission we pay... I want to see if we lose money or not." Source: Trybe connector snapshots, pipeline/trybe.py. */
@@ -2042,3 +2039,6 @@ function pTrybe() {
   });
   return h;
 }
+
+start().catch(err => { $('#lockErr').textContent = 'Could not load data: ' + err.message; });
+})();
