@@ -1951,6 +1951,12 @@ function pTrybe() {
   const joined = (x, y) => x ? CR.map((c, i) => [c, i]).filter(([c]) => c.on && c.j >= x && c.j <= y) : [];
   const C = pl(a, b), Pv = pl(ca, cb), N = content(a, b), Nv = content(ca, cb);
   const moneyEnd = b > last ? last : b, partial = b > last;
+  // ROAS by the attribution model picked on the left (Andy 2026-11-18): Triple Whale numbers of the Meta ads whose name carries trybe=<id>
+  const TYA = new Set(); D.ads.forEach((ad, i) => { if (/trybe=?[0-9a-f]{8}/i.test(ad.n)) TYA.add(i); });
+  const twR = (x, y) => { const o = {sp:0, rev:0, n:new Set(), r:null}; if (!x) return o; const [i0, i1] = idxRange(x, y);
+    for (const r of D.rows) if (TYA.has(r[0]) && r[1] >= i0 && r[1] <= i1) { o.sp += r[2]; o.rev += S.model === 'fc' ? r[4] : S.model === 'ta' ? r[5] : r[3]; if (r[2]) o.n.add(r[0]); }
+    o.r = o.sp ? o.rev / o.sp : null; o.n = o.n.size; return o; };
+  const TW = twR(a, b), TWp = twR(ca, cb);
   // ---------- helpers
   const dl = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null || !ca) return `<span class="muted">${ca ? 'nothing to compare' : ''}</span>`; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
     return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(0)}%</span> <span class="muted">vs ${CL}</span>`; };
@@ -1979,7 +1985,8 @@ function pTrybe() {
     kp('Ad spend', usd(C.sp), dl(C.sp, Pv.sp, true) + was(`${usd(Pv.sp)} ${CL}`), '', 'Meta spend on ads that run Trybe videos', 1) +
     kp('Revenue', usd(C.pv), dl(C.pv, Pv.pv) + was(`${usd(Pv.pv)} ${CL}`), 'gold', 'Purchase value Meta reports on those ads', 1) +
     kp('Profit', usd(C.profit), dl(C.profit, Pv.profit) + was(`${usd(Pv.profit)} ${CL}`), win ? 'up' : 'down', 'Revenue − product cost − shipping and fees − ad spend − commission − free products', 1) +
-    kp('ROAS', x2(C.roas), dl(C.roas, Pv.roas) + was(`${x2(Pv.roas)} ${CL} · break-even ${x2(1 / Math.max(.01, 1 - COGS - (C.pu && C.pv ? C.ship / C.pv : 0)))}`), C.roas >= 2 ? 'up' : C.roas ? 'down' : '', 'Meta purchase value ÷ ad spend', 1) +
+    kp(`ROAS · ${MODELS[S.model]}`, x2(TW.r), dl(TW.r, TWp.r) + was(`${x2(TWp.r)} ${CL} · break-even ${x2(1 / Math.max(.01, 1 - COGS - (C.pu && C.pv ? C.ship / C.pv : 0)))}`), TW.r >= 2 ? 'up' : TW.r ? 'down' : '',
+      `Triple Whale ${MODELS[S.model]} revenue ÷ spend on the ${TW.n} Meta ads named trybe=… (${usd(TW.sp * 100)} spend in these dates). Follows the attribution model picked on the left. Meta's own ROAS: ${x2(C.roas)}.`, 1) +
     kp('Creator commission', usd(C.e), dl(C.e, Pv.e, true) + was(`${usd(Pv.e)} ${CL}`), '', 'Commission + retainers + bonuses Trybe books for the creators', 1), 140).replace('class="grid kpis"', 'class="grid kpis ty-six"');
 
   // ---------- tabs
