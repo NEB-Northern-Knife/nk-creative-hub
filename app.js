@@ -64,42 +64,58 @@ const addD = (s, n) => { const d = P(s); d.setUTCDate(d.getUTCDate() + n); retur
 const monday = s => { const d = P(s); const wd = (d.getUTCDay() + 6) % 7; return addD(s, -wd); };
 const nDays = (a, b) => Math.round((P(b) - P(a)) / 864e5) + 1;
 const fmtD = s => P(s).toLocaleDateString('en-GB', {day:'numeric', month:'short', timeZone:'UTC'});
-const PRESETS = [['week','This week'],['lastweek','Last week'],['month','This month'],['lastmonth','Last month'],['7d','Last 7 days'],['30d','Last 30 days'],['quarter','This quarter'],['lastquarter','Last quarter'],['year','This year']];
-/* Markets: pick what to compare with (Andy 2026-11-11) */
-const CMPS = [['prev','Previous period'],['pw','Previous week'],['pm','Previous month'],['pq','Previous quarter'],['py','Previous year'],['pyw','Previous year, same weekday']];
+/* ONE date bar on every page (Andy 2026-11-18): 5 quick buttons, the rest in the dropdown, and a Compare dropdown next to it.
+   Default compare = the same days one period back (this week vs the same weekdays last week, this month vs the same dates last month, this year vs last year). */
+const PRESETS = [['today','Today'],['yday','Yesterday'],['7d','Last 7 days'],['14d','Last 14 days'],['30d','Last 30 days'],['90d','Last 90 days'],['365d','Last 365 days'],['-'],
+  ['week','This week'],['lastweek','Last week'],['month','This month'],['lastmonth','Last month'],['quarter','This quarter'],['lastquarter','Last quarter'],['year','This year'],['lastyear','Last year'],['-'],['all','Since day one']];
+const QUICK = ['week','lastweek','month','lastmonth','year'];
+const CMPS = [['prev','Previous period (same days)'],['pw','Previous week'],['pm','Previous month'],['pq','Previous quarter'],['py','Previous year'],['pyw','Previous year, same weekday']];
+const CMPS_H = [...CMPS, ['none','No comparison']];
 const MIN_DAY = '2026-01-01';
+let HFIRST = null;
+function pageMin() {
+  if (S.page === 'health' && HL) { if (!HFIRST) { HFIRST = D.today; for (const o of Object.values(HL.stores)) for (const d of [...Object.keys(o.sheet || {}), ...Object.keys(o.tw || {})]) if (d < HFIRST) HFIRST = d; } return HFIRST; }
+  if (S.page === 'conv') return '2025-01-01';
+  if (S.page === 'trybe') return '2026-08-13';
+  return MIN_DAY;
+}
 function presetRange(p) {
-  const t = D.today, first = MIN_DAY;
-  const clip = s => s < first ? first : s;
-  if (p === 'week') return [monday(t), t];
-  if (p === 'lastweek') { const m = addD(monday(t), -7); return [m, addD(m, 6)]; }
-  if (p === 'month') return [clip(t.slice(0, 8) + '01'), t];
-  if (p === 'lastmonth') { const m1 = t.slice(0, 8) + '01'; const e = addD(m1, -1); return [clip(e.slice(0, 8) + '01'), e]; }
-  if (p === '7d') return [clip(addD(t, -6)), t];
-  if (p === '30d') return [clip(addD(t, -29)), t];
-  if (p === 'year') return [t.slice(0, 4) + '-01-01', t];
-  if (p === 'quarter' || p === 'lastquarter') { const q0 = t.slice(0, 5) + String(Math.floor((+t.slice(5, 7) - 1) / 3) * 3 + 1).padStart(2, '0') + '-01';
-    if (p === 'quarter') return [clip(q0), t]; const d = P(q0); d.setUTCMonth(d.getUTCMonth() - 3); return [clip(iso(d)), addD(q0, -1)]; }
+  const t = D.today, first = pageMin();
+  const clip = s => s < first ? first : s, back = n => [clip(addD(t, -(n - 1))), t];
+  const q0 = t.slice(0, 5) + String(Math.floor((+t.slice(5, 7) - 1) / 3) * 3 + 1).padStart(2, '0') + '-01';
+  switch (p) {
+    case 'today': return [t, t]; case 'yday': return [addD(t, -1), addD(t, -1)];
+    case '7d': return back(7); case '14d': return back(14); case '30d': return back(30); case '90d': return back(90); case '365d': return back(365);
+    case 'week': return [clip(monday(t)), t]; case 'lastweek': { const m = addD(monday(t), -7); return [clip(m), addD(m, 6)]; }
+    case 'month': return [clip(t.slice(0, 8) + '01'), t]; case 'lastmonth': { const e = addD(t.slice(0, 8) + '01', -1); return [clip(e.slice(0, 8) + '01'), e]; }
+    case 'quarter': return [clip(q0), t]; case 'lastquarter': return [clip(shiftM(q0, -3)), addD(q0, -1)];
+    case 'year': return [clip(t.slice(0, 4) + '-01-01'), t]; case 'lastyear': { const y = +t.slice(0, 4) - 1; return [clip(y + '-01-01'), y + '-12-31']; }
+    case 'all': return [first, t];
+  }
   return [S.from, S.to];
 }
+const shiftM = (d, n) => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + n, dd = +d.slice(8, 10), last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return iso(new Date(Date.UTC(y, m, Math.min(dd, last)))); };
+const mEndD = d => iso(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0)));
+// the compare window for [a, b]; null pair when switched off (Health only)
 function compareRange(a, b) {
-  if ((S.page === 'markets' || S.page === 'conv') && S.cmp && S.cmp !== 'prev') {
-    if (S.cmp === 'custom' && S.cfrom && S.cto) return [S.cfrom, S.cto];
-    const mshift = n => { const sh = d => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + n, dd = +d.slice(8, 10), last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return iso(new Date(Date.UTC(y, m, Math.min(dd, last)))); };
-      const endOfM = d => iso(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0))), full = a.slice(8) === '01' && b === endOfM(b);
-      return [sh(a), full ? endOfM(sh(b.slice(0, 8) + '01')) : sh(b)]; };
-    if (S.cmp === 'pw') return [addD(a, -7), addD(b, -7)];
-    if (S.cmp === 'pm') return mshift(-1); if (S.cmp === 'pq') return mshift(-3); if (S.cmp === 'py') return mshift(-12);
-    if (S.cmp === 'pyw') return [addD(a, -364), addD(b, -364)];
-  }
-  const n = nDays(a, b);
-  if (S.preset === 'week' || S.preset === 'lastweek') return [addD(a, -7), addD(b, -7)];
-  if (S.preset === 'month' || S.preset === 'lastmonth') {
-    const d = P(a); d.setUTCMonth(d.getUTCMonth() - 1); const ca = iso(d);
-    return [ca, addD(ca, n - 1)];
-  }
-  return [addD(a, -n), addD(a, -1)];
+  const c = S.cmp || 'prev';
+  if (c === 'none') return S.page === 'health' ? [null, null] : compareAuto(a, b);
+  if (c === 'custom' && S.cfrom && S.cto) return [S.cfrom, S.cto];
+  const fullM = a.slice(8) === '01' && b === mEndD(b), sm = n => [shiftM(a, n), fullM ? mEndD(shiftM(b.slice(0, 8) + '01', n)) : shiftM(b, n)];
+  if (c === 'pw') return [addD(a, -7), addD(b, -7)]; if (c === 'pm') return sm(-1); if (c === 'pq') return sm(-3); if (c === 'py') return sm(-12);
+  if (c === 'pyw') return [addD(a, -364), addD(b, -364)];
+  return compareAuto(a, b);
 }
+function compareAuto(a, b) {
+  const p = S.preset, fullM = a.slice(8) === '01' && b === mEndD(b), sm = n => [shiftM(a, n), fullM ? mEndD(shiftM(b.slice(0, 8) + '01', n)) : shiftM(b, n)];
+  if (p === 'today' || p === 'yday') return [addD(a, -1), addD(b, -1)];
+  if (p === 'week' || p === 'lastweek') return [addD(a, -7), addD(b, -7)];
+  if (p === 'month' || p === 'lastmonth') return sm(-1); if (p === 'quarter' || p === 'lastquarter') return sm(-3); if (p === 'year' || p === 'lastyear') return sm(-12);
+  const n = nDays(a, b); return [addD(a, -n), addD(a, -1)];
+}
+const cmpName = () => { const c = S.cmp || 'prev'; if (c === 'custom') return 'Custom dates'; if (c === 'none') return 'Off';
+  if (c !== 'prev') return CMPS.find(x => x[0] === c)[1];
+  return ({today:'Day before', yday:'Day before', week:'Previous week', lastweek:'Previous week', month:'Previous month', lastmonth:'Previous month', quarter:'Previous quarter', lastquarter:'Previous quarter', year:'Previous year', lastyear:'Previous year'})[S.preset] || 'Previous period'; };
 const R = () => [S.from, S.to];
 const dIdx = s => { const i = D.days.indexOf(s); return i; };
 function idxRange(a, b) { let i0 = D.days.indexOf(a), i1 = D.days.indexOf(b); if (i0 < 0) i0 = a < D.days[0] ? 0 : D.days.length; if (i1 < 0) i1 = b > D.days[D.days.length - 1] ? D.days.length - 1 : -1; return [i0, i1]; }
@@ -363,13 +379,15 @@ function readHash() {
   if (h.get('c')) { S.cmp = h.get('c'); S.cfrom = h.get('cf'); S.cto = h.get('ct'); }
 }
 function applyPreset() { if (S.preset !== 'custom') [S.from, S.to] = presetRange(S.preset); }
-function rangeBar() {
-  const [ca, cb] = compareRange(S.from, S.to);
-  const early = S.page !== 'production' && S.page !== 'conv' && partialMonths(S.from, S.to) ? ` · <span class="muted">before ${fmtD(D.days[0])} the hub counts whole months</span>` : '';
-  return `<div class="rangebar"><div class="seg" id="rPre">${PRESETS.map(([v, l]) => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <button class="dp-btn" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>${fmtD(S.from)} – ${fmtD(S.to)} ▾</button>
-    ${S.page === 'markets' || S.page === 'conv' ? `<button class="dp-btn cmp-btn" id="cmpBtn"><svg viewBox="0 0 24 24"><path d="M4 8h13l-3-3M20 16H7l3 3"/></svg>Compare with: <b>${S.cmp === 'custom' ? 'Custom dates' : (CMPS.find(x => x[0] === S.cmp) || CMPS[0])[1]}</b> · ${fmtD(ca)} – ${fmtD(cb)}${ca.slice(0, 4) !== S.from.slice(0, 4) ? ' ' + ca.slice(0, 4) : ''} ▾</button>` : ''}
-    <span class="cmp">${mName(S.market, 'all markets')} · ${S.page === 'conv' ? '' : S.page === 'markets' ? (ca < '2025-01-01' ? 'the hub has no data that far back' : ca < MIN_DAY ? 'before 1 Jan 2026 the hub counts whole months' : '') : ca < MIN_DAY ? 'no earlier period in the hub to compare with' : `compared with ${fmtD(ca)} – ${fmtD(cb)}`}${early}</span></div>`;
+function rangeBar(extra) {
+  const [ca, cb] = compareRange(S.from, S.to), pl = (PRESETS.find(x => x[0] === S.preset) || [0, 'Custom'])[1], span = nDays(S.from, S.to);
+  const early = !['production','conv','health','trybe'].includes(S.page) && partialMonths(S.from, S.to) ? ` · before ${fmtD(D.days[0])} the hub counts whole months` : '';
+  const noC = S.page !== 'health' && S.page !== 'conv' && S.page !== 'trybe' && ca && ca < MIN_DAY && S.page !== 'markets' ? ' · no data that far back to compare with' : '';
+  const yr = (x, y) => x.slice(0, 4) !== y.slice(0, 4) || x.slice(0, 4) !== D.today.slice(0, 4) ? fRange(x, y) : fmtD(x) === fmtD(y) ? fmtD(x) : `${fmtD(x)} – ${fmtD(y)}`;
+  return `<div class="rangebar"><div class="seg" id="rPre">${QUICK.map(v => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${PRESETS.find(x => x[0] === v)[1]}</button>`).join('')}</div>
+    <button class="dp-btn hdp" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span><small>${pl} · ${span} day${span > 1 ? 's' : ''}</small><b>${yr(S.from, S.to)}</b></span><i>▾</i></button>
+    <button class="dp-btn hdp cmp" id="cmpBtn"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><small>Compared with · ${cmpName()}</small><b>${ca ? yr(ca, cb) : 'Off'}</b></span><i>▾</i></button>
+    ${extra || ''}<span class="cmp">${S.page === 'health' || S.page === 'trybe' ? '' : mName(S.market, 'all markets')}${noC}${early}</span></div>`;
 }
 const DP = {a:null, b:null, hover:null, view:null, cfg:null};
 const dpMin = () => (DP.cfg && DP.cfg.min) || MIN_DAY;
@@ -418,8 +436,8 @@ function dpPaint() {
   $('#dpTxt').textContent = !DP.a ? 'Pick a start date' : !DP.b ? `${fmtD(DP.a)} – now pick an end date` : `${fmtD(x)} – ${fmtD(y)} · ${nDays(x, y)} days`;
   const ap = $('#dpApply'); ap.style.opacity = DP.a && DP.b ? 1 : .5;
 }
-const hubDP = () => ({presets:PRESETS, cur:S.preset, a:S.from, b:S.to, min:MIN_DAY, pick:v => { S.preset = v; applyPreset(); },
-  apply:(x, y) => { const match = PRESETS.find(([v]) => { const [p0, p1] = presetRange(v); return p0 === x && p1 === y; }); S.preset = match ? match[0] : 'custom'; S.from = x; S.to = y; }});
+const hubDP = () => ({title:'Date range', presets:PRESETS, cur:S.preset, a:S.from, b:S.to, min:pageMin(), pick:v => { S.preset = v; S.hg = null; S.tyg = null; applyPreset(); },
+  apply:(x, y) => { const match = PRESETS.find(([v]) => v !== '-' && v !== 'all' && presetRange(v).join() === x + ',' + y); S.preset = match ? match[0] : 'custom'; S.from = x; S.to = y; S.hg = null; S.tyg = null; }});
 function dpOpen(btn, cfg) {
   let el = $('#dp'); if (!el) { el = document.createElement('div'); el.id = 'dp'; document.body.appendChild(el); }
   DP.cfg = cfg || hubDP(); DP.btn = btn;
@@ -434,10 +452,11 @@ function dpOutside(e) { const el = $('#dp'); if (el && !el.contains(e.target) &&
 function dpClose() { const el = $('#dp'); if (el) el.classList.remove('open'); document.removeEventListener('mousedown', dpOutside); }
 function wireRange() {
   const pre = $('#rPre'); if (!pre) return;
-  pre.onclick = e => { const b = e.target.closest('button'); if (!b) return; S.preset = b.dataset.v; applyPreset(); render(); };
-  $('#dpBtn').onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open') && DP.btn === e.currentTarget) dpClose(); else dpOpen(e.currentTarget); };
-  const cb = $('#cmpBtn'); if (cb) cb.onclick = e => { const el = $('#dp'); if (el && el.classList.contains('open') && DP.btn === e.currentTarget) return dpClose(); const [x, y] = compareRange(S.from, S.to);
-    dpOpen(e.currentTarget, {title:'Compare with', presets:CMPS, cur:S.cmp, a:x, b:y, min:'2025-01-01', pick:v => { S.cmp = v; }, apply:(p0, p1) => { S.cmp = 'custom'; S.cfrom = p0; S.cto = p1; }}); };
+  pre.onclick = e => { const b = e.target.closest('button'); if (!b) return; S.preset = b.dataset.v; S.hg = null; S.tyg = null; applyPreset(); render(); };
+  const tog = (el, cfg) => { if (el) el.onclick = e => { const d = $('#dp'); if (d && d.classList.contains('open') && DP.btn === e.currentTarget) dpClose(); else dpOpen(e.currentTarget, cfg()); }; };
+  tog($('#dpBtn'), hubDP);
+  tog($('#cmpBtn'), () => { const [x, y] = compareRange(S.from, S.to);
+    return {title:'Compare with', presets:S.page === 'health' ? CMPS_H : CMPS, cur:S.cmp || 'prev', a:x || S.from, b:y || S.to, min:S.page === 'health' ? pageMin() : '2025-01-01', pick:v => { S.cmp = v; }, apply:(p0, p1) => { S.cmp = 'custom'; S.cfrom = p0; S.cto = p1; }}; });
 }
 /* data freshness + owner-only refresh (Andy, 2026-11-10) */
 const agoTxt = iso => { const m = Math.round((Date.now() - new Date(iso)) / 6e4); return m < 60 ? m + ' min ago' : m < 2880 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
@@ -475,6 +494,7 @@ function head(kicker, title) {
 }
 const afterRender = [];
 function render() {
+  if (S.preset !== 'custom') applyPreset();
   Object.values(charts).forEach(c => c.destroy()); for (const kk in charts) delete charts[kk];
   syncControls();
   const v = $('#view');
@@ -963,36 +983,6 @@ function openInfo(key) {
 }
 const MKC = {US:'#3a80c4', UK:'#cf4640', AU:'#b38b33', CA:'#8f74d6', DE:'#4fa37a', NL:'#e08a3c'};
 const HTABS = [['overview','Overview'],['profit','Daily profit'],['customers','Customers & LTV'],['margins','Margins & COGS'],['email','Email'],['support','Customer service'],['reviews','Reviews']];
-const HPRE = [['today','Today'],['yday','Yesterday'],['7d','Last 7 days'],['14d','Last 14 days'],['30d','Last 30 days'],['90d','Last 90 days'],['365d','Last 365 days'],['-'],
-  ['wk','This week'],['lw','Last week'],['m','This month'],['lm','Last month'],['q','This quarter'],['lq','Last quarter'],['ytd','This year'],['ly','Last year'],['-'],['all','Since day one']];
-const HCMP = [['prev','Previous period'],['pw','Previous week'],['pm','Previous month'],['py','Previous year'],['pyw','Previous year (match day of week)'],['none','No comparison']];
-const shiftM = (d, n) => { const y = +d.slice(0, 4), m = +d.slice(5, 7) - 1 + n, dd = +d.slice(8, 10), last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate(); return iso(new Date(Date.UTC(y, m, Math.min(dd, last)))); };
-const mEndD = d => iso(new Date(Date.UTC(+d.slice(0, 4), +d.slice(5, 7), 0)));
-function hRange(p, first) {
-  const t = D.today, m0 = t.slice(0, 8) + '01', q0 = t.slice(0, 5) + String(Math.floor((+t.slice(5, 7) - 1) / 3) * 3 + 1).padStart(2, '0') + '-01', y0 = t.slice(0, 4) + '-01-01';
-  const back = n => [addD(t, -(n - 1)), t];
-  switch (p) {
-    case 'today': return [t, t]; case 'yday': return [addD(t, -1), addD(t, -1)];
-    case '7d': return back(7); case '14d': return back(14); case '30d': return back(30); case '90d': return back(90); case '365d': return back(365);
-    case 'wk': return [monday(t), t]; case 'lw': return [addD(monday(t), -7), addD(monday(t), -1)];
-    case 'm': return [m0, t]; case 'lm': return [shiftM(m0, -1), addD(m0, -1)];
-    case 'q': return [q0, t]; case 'lq': return [shiftM(q0, -3), addD(q0, -1)];
-    case 'ytd': return [y0, t]; case 'ly': return [(+t.slice(0, 4) - 1) + '-01-01', (+t.slice(0, 4) - 1) + '-12-31'];
-    case 'custom': if (S.hfrom && S.hto) return [S.hfrom, S.hto];
-  }
-  return [first, t];
-}
-/* "Previous period" keeps the same dates in the previous week / month / quarter / year (1-10 Nov vs 1-10 Oct), Andy 2026-11-10 */
-function hCompare(p, A, B, cmp) {
-  if (cmp === 'none') return [null, null];
-  if (cmp === 'custom' && S.hca && S.hcb) return [S.hca, S.hcb];
-  const fullM = A.slice(8) === '01' && B === mEndD(B), sm = n => [shiftM(A, n), fullM ? mEndD(shiftM(B.slice(0, 8) + '01', n)) : shiftM(B, n)];
-  if (cmp === 'py') return sm(-12); if (cmp === 'pm') return sm(-1); if (cmp === 'pw') return [addD(A, -7), addD(B, -7)]; if (cmp === 'pyw') return [addD(A, -364), addD(B, -364)];
-  if (p === 'today' || p === 'yday') return [addD(A, -1), addD(B, -1)];
-  if (p === 'wk' || p === 'lw') return [addD(A, -7), addD(B, -7)];
-  if (p === 'm' || p === 'lm') return sm(-1); if (p === 'q' || p === 'lq') return sm(-3); if (p === 'ytd' || p === 'ly') return sm(-12);
-  const n = nDays(A, B); return [addD(A, -n), addD(A, -1)];
-}
 const fRange = (a, b) => { const o = {day:'numeric', month:'short', timeZone:'UTC'}, y = {...o, year:'numeric'}; return a === b ? P(a).toLocaleDateString('en-GB', y) : a.slice(0, 4) === b.slice(0, 4) ? `${P(a).toLocaleDateString('en-GB', o)} – ${P(b).toLocaleDateString('en-GB', y)}` : `${P(a).toLocaleDateString('en-GB', y)} – ${P(b).toLocaleDateString('en-GB', y)}`; };
 function fillKeys(a, b, g) { // every day / Monday week / month / year in [a, b], so empty periods show as 0
   const out = [], seen = new Set(), end = b > D.today ? D.today : b; if (!a || a > end) return out;
@@ -1018,11 +1008,10 @@ function pHealth() {
   }
   const dates = Object.keys(daily).sort(), first = dates[0] || today;
   // ---------- date range + comparison (own controls, independent of the hub's weekly presets)
-  const pre = ({'3m':'90d', '12m':'365d', yoy:'py'})[S.hpre] || S.hpre || 'm';
-  const [A, Bd] = hRange(pre, first), cmp = ({yoy:'py'})[S.hcmp] || S.hcmp || 'prev';
+  const pre = S.preset, [A, Bd] = [S.from, S.to], cmp = S.cmp || 'prev';
   const span = nDays(A, Bd), nd = Math.max(1, nDays(A < first ? first : A, Bd > today ? today : Bd));
-  const [CA, CB] = hCompare(pre, A, Bd, cmp);
-  const CL = {prev:'previous period', pw:'previous week', pm:'previous month', py:'last year', pyw:'last year (same weekday)', custom:'compare dates'}[cmp];
+  const [CA, CB] = compareRange(A, Bd);
+  const CL = cmpName().toLowerCase();
   const inR = (d, a, b) => a && d >= a && d <= b, mIn = (m, a, b) => a && m >= a.slice(0, 7) && m <= b.slice(0, 7);
   const g = S.hg || (span <= 62 ? 'day' : span <= 200 ? 'week' : 'month');
   const KEY = {day:d => d, week:d => monday(d), month:d => d.slice(0, 7), year:d => d.slice(0, 4)};
@@ -1080,10 +1069,7 @@ function pHealth() {
   let h = freshBar() + `<div class="page-head"><div><div class="kicker">Owner only · nobody else can open this page or its data</div><h1>Business health</h1></div>
     <div class="meta">${FLAGS[S.market]} ${isAgg(S.market) ? mName(S.market) + ' (USD)' : S.market + ' · ' + curCode()} · data since ${MON(first.slice(0, 7))} ${first.slice(0, 4)}</div></div>
     <div class="htabs">${HTABS.map(([v, l]) => `<button data-ht="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="hbar card">
-      <button class="dp-btn hdp" id="hRange"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span><small>${(HPRE.find(x => x[0] === pre) || [0, 'Custom'])[1]} · ${span} day${span > 1 ? 's' : ''}</small><b>${fRange(A, Bd)}</b></span><i>▾</i></button>
-      <button class="dp-btn hdp cmp" id="hCmp"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><small>Compare to · ${(HCMP.find(x => x[0] === cmp) || [0, 'Custom dates'])[1]}</small><b>${CA ? fRange(CA, CB) : 'Off'}</b></span><i>▾</i></button>
-      <span class="hsep"></span><span class="muted" style="font-size:11px">Per</span>${tabs('hg', g, [['day','Day'],['week','Week'],['month','Month'],['year','Year']])}
+    ${rangeBar()}<div class="hbar card"><span class="muted" style="font-size:11px">Per</span>${tabs('hg', g, [['day','Day'],['week','Week'],['month','Month'],['year','Year']])}
       <span class="hsep"></span><span class="muted" style="font-size:11px">Size</span>${tabs('hz', hz, [['s','S'],['m','M'],['l','L']])}
     </div>${(() => { const fl = mk.flatMap(st => Object.entries(HL.stores[st].fill || {}).filter(([d]) => d >= A && d <= Bd).map(([d, v]) => [st, d, v]));
       if (!fl.length) return ''; const by = {}; for (const [st, d, v] of fl) { const b = by[st] || (by[st] = {n:0, a:d, b:d, rev:0, px:0}); b.n++; b.rev += v[0] * k(st); if (v[2] === 'pixel') b.px++; if (d < b.a) b.a = d; if (d > b.b) b.b = d; }
@@ -1370,17 +1356,13 @@ function pHealth() {
   afterRender.push(() => {
     $('#view').querySelectorAll('[data-ht]').forEach(b => b.onclick = () => { S.ht = b.dataset.ht; render(); });
     for (const id of ['hg', 'hlm', 'hz', 'hcmp', 'hcor']) { const t = $('#' + id); if (t) t.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { S[id] = bt.dataset.v; render(); } }; }
-    const tog = (el, cfg) => { if (el) el.onclick = e => { const d = $('#dp'); if (d && d.classList.contains('open') && DP.btn === e.currentTarget) dpClose(); else dpOpen(e.currentTarget, cfg()); }; };
-    tog($('#hRange'), () => ({title:'Date range', presets:HPRE, cur:pre, a:A, b:Bd, min:first, pick:v => { S.hpre = v; S.hg = null; },
-      apply:(x, y) => { const m = HPRE.find(([v]) => v !== '-' && v !== 'all' && hRange(v, first).join() === x + ',' + y); S.hpre = m ? m[0] : 'custom'; S.hfrom = x; S.hto = y; S.hg = null; }}));
-    tog($('#hCmp'), () => ({title:'Compare to', presets:HCMP, cur:cmp, a:CA || A, b:CB || Bd, min:first, pick:v => { S.hcmp = v; }, apply:(x, y) => { S.hcmp = 'custom'; S.hca = x; S.hcb = y; }}));
     $('#view').querySelectorAll('[data-more]').forEach(el => el.onclick = () => { const kk = el.dataset.more; if (kk === 'p') S.hpAll = g + A + Bd; if (kk === 'co') S.hcoAll = true; if (kk === 'jmp') S.hjmAll = true; render(); });
     $('#view').querySelectorAll('[data-info]').forEach(b => b.onclick = () => openInfo(b.dataset.info));
     after.forEach(f => f());
   });
   return h;
 }
-function gran() { if (['week','lastweek','7d'].includes(S.preset)) return 'week'; if (S.preset === 'custom') return nDays(S.from, S.to) <= 14 ? 'week' : 'month'; return 'month'; }
+function gran() { if (['today','yday','week','lastweek','7d','14d'].includes(S.preset)) return 'week'; if (S.preset === 'custom') return nDays(S.from, S.to) <= 14 ? 'week' : 'month'; return 'month'; }
 function monthsIn(a, b) { const out = []; let m = a.slice(0, 7); while (m <= b.slice(0, 7)) { out.push(m); const d = P(m + '-01'); d.setUTCMonth(d.getUTCMonth() + 1); m = iso(d).slice(0, 7); } return out; }
 function vidsIn(a, b, g) { if (g === 'month') { const ms = monthsIn(a, b); return PR.videos.filter(v => ms.includes(v.m)); } return PR.videos.filter(v => v.d >= a && v.d <= b); }
 function staticsIn(a, b, g) {
@@ -1625,7 +1607,7 @@ function pInsights() {
 }
 function pGuide() {
   return `<div class="page-head"><div><div class="kicker">For designers, editors and strategists</div><h1>How to read this</h1></div></div><div class="guide">
-  <h3>Dates</h3><p>The hub opens on <b>this week</b> (Monday to today). Switch to last week, this month, last month, the last 7 or 30 days, or pick any two dates. Every number is compared with the same dates one period earlier.</p>
+  <h3>Dates</h3><p>Every page has the same date bar. The hub opens on <b>this week</b> (Monday to today); the quick buttons switch to last week, this month, last month or this year, and the date button opens every other choice (today, last 7/14/30/90 days, quarters, last year, since day one) or any two dates. Next to it, <b>Compared with</b> picks what the numbers are measured against: by default the same days one period back (this week against the same weekdays last week, this month against the same dates last month, this year against last year), or any other period or dates you choose.</p>
   <h3>Three ROAS numbers, one verdict</h3><p><b style="color:var(--gold)">First Click</b> credits the ad that <i>started</i> the customer's journey: it decides whether an ad gets scaled. <b>Triple</b> spreads credit across the journey. <b>C&amp;D</b> (Clicks &amp; Deterministic Views) credits every click and every verified view along the journey: how the ad works across the whole funnel. <span class="good">Green</span> means at or above the target in the control panel (default: the account average for the same dates), <span class="bad">red</span> below.</p>
   <ul><li><span class="pill green">Acquirer</span> First Click holds close to C&amp;D: the ad brings in new people. Iterate on these.</li><li><span class="pill blue">Closer</span> C&amp;D far above First Click: earns its credit from later clicks and views in journeys other ads started.</li></ul>
   <h3>Videos</h3><p>Hover a video card to preview it, click to watch with sound, every hook and every country. <b>Hook</b> = 3-second views ÷ impressions. <b>Hold</b> = ThruPlays ÷ 3-second views. <b>Link CTR</b> = outbound clicks ÷ impressions. All follow the selected dates.</p>
@@ -1741,7 +1723,7 @@ function pConv() {
   // any period + any comparison (Andy 2026-11-11): daily rows per page and per device since 1 Jan 2025
   const [a, b] = R(), [ca, cb] = compareRange(a, b), X0 = (Object.values(X.stores)[0] || {}).d0 || '2025-01-01', xEnd = (Object.values(X.stores)[0] || {}).end || D.today;
   const di = d => nDays(X0, d) - 1, [ia, ib, ja, jb] = [di(a), di(b), di(ca), di(cb)];
-  const hasC = ca >= X0, CL = S.cmp === 'prev' || !S.cmp ? 'the period before' : S.cmp === 'custom' ? 'the compare dates' : (CMPS.find(x => x[0] === S.cmp) || CMPS[0])[1].toLowerCase();
+  const hasC = ca >= X0, CL = cmpName().toLowerCase();
   const P = new Map(); const T = {s:0, o:0, r:0, a:0, b:0, s0:0, o0:0, r0:0, a0:0, b0:0};
   const add = (x, r, c, pre) => { x[pre + 's'] = (x[pre + 's'] || 0) + r[1]; x[pre + 'o'] = (x[pre + 'o'] || 0) + r[2]; x[pre + 'r'] = (x[pre + 'r'] || 0) + r[3] * c; x[pre + 'a'] = (x[pre + 'a'] || 0) + r[4]; x[pre + 'b'] = (x[pre + 'b'] || 0) + r[5]; };
   for (const st of mk) { const c = k(st);
@@ -1939,117 +1921,193 @@ async function start() {
     catch (err) { $('#lockErr').innerHTML = '<span class="bad">' + esc(err.message) + '</span>'; $('#loginBtn').disabled = false; $('#pwIn').select(); }
   };
 }
-/* ---------------- Trybe creators (Andy 2026-11-17, OWNER ONLY: data rides in health.bin) ----------------
-   "How many videos created this week vs the week before, how many signed up, how many submitted, the revenue, the ROAS,
-   the commission we pay... I want to see if we lose money or not." Source: Trybe connector snapshots, pipeline/trybe.py. */
+/* ---------------- Trybe creators v2 (Andy 2026-11-18, OWNER ONLY: data rides in health.bin) ----------------
+   Any date range + compare (the hub date bar). Top: the 6 numbers that say if the program makes money (videos, ad spend, revenue,
+   profit, ROAS, creator commission). Below, one tab per question: profit, content, creators (acquisition + retention), leaderboard,
+   top videos. Profit = Meta purchase value - product cost (COGS) - shipping and fees per order - ad spend - creator commission
+   - free products sent (LOKI $22.40, Feather $32, Rolling $35 each, product + shipping). Source: pipeline/trybe.py. */
+const TY_P = {loki:'LOKI', feather:'Feather', rolling:'Rolling sharpener'};
 function pTrybe() {
   const T = HL && HL.trybe;
-  let h = freshBar() + `<div class="page-head"><div><div class="kicker">Creator program · videos · sign-ups · money in and out</div><h1>Trybe creators</h1></div>
+  let h = freshBar() + `<div class="page-head"><div><div class="kicker">Creator program · is it making money?</div><h1>Trybe creators</h1></div>
     <div class="meta">🇺🇸 US · USD${T && T.pulled ? ' · Trybe pulled ' + esc(fmtD(T.pulled.slice(0, 10))) : ''}</div></div>`;
-  if (!T) return h + '<div class="empty">The Trybe data is not in this build yet.</div>';
-  const usd = (c, dec) => { const v = (c || 0) / 100, a = Math.abs(v); const s = dec !== undefined ? a.toLocaleString('en-US', {maximumFractionDigits:dec, minimumFractionDigits:dec}) : a >= 1e4 ? (a / 1e3).toFixed(1) + 'k' : Math.round(a).toLocaleString('en-US'); return (v < 0 ? '-' : '') + '$' + s; };
-  const GM = T.gm || 0, knife = +(LS('nkhub.trybeKnife') || 0) * 100; // cost of one free knife, cents (owner types it once)
-  const ro = p => p && p.spend_cents ? p.purchase_value_cents / p.spend_cents : null;
-  // money a period leaves us with on the ads: purchase value x gross margin - ad spend - creator pay (Trybe GMV not added: it overlaps)
-  const res = p => p ? Math.round((p.purchase_value_cents || 0) * GM - (p.spend_cents || 0) - (p.earnings_cents || 0)) : 0;
-  const W = T.weeks || [], ix = Math.max(0, Math.min(W.length - 1, S.tyw != null ? S.tyw : W.length - 1)), cw = W[ix] || {}, pw = W[ix - 1] || {};
-  const P0 = cw.perf || {}, P1 = pw.perf || {};
-  const partial = cw.s && nDays(cw.s, D.today) < 7;
-  const dl = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null) return '<span class="muted">no comparison</span>'; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
-    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(0)}%</span> <span class="muted">vs week before</span>`; };
-  const kp = (l, v, sub, cls = '', tip = '') => `<div class="card kpi"${tip ? ` title="${esc(tip)}"` : ''}><div class="lbl">${l}</div><div class="val num ${cls}">${v}</div><div class="delta">${sub}</div></div>`;
+  if (!T || !T.days) return h + rangeBar() + '<div class="empty">The Trybe data is not in this build yet.</div>';
+  const [a, b] = R(), [ca, cb] = compareRange(a, b), last = T.d1 || D.today, CL = cmpName().toLowerCase();
+  const usd = (c, dec) => { const v = (c || 0) / 100, x = Math.abs(v); const s = dec !== undefined ? x.toLocaleString('en-US', {maximumFractionDigits:dec, minimumFractionDigits:dec}) : x >= 1e4 ? (x / 1e3).toFixed(1) + 'k' : Math.round(x).toLocaleString('en-US'); return (v < 0 ? '-' : '') + '$' + s; };
+  const COGS = T.cogs || 0, FUL = Math.round((T.ful || 0) * 100), COST = T.cost || {}, CR = T.creators || [];
+  const DK = Object.keys(T.days).sort();
+  // ---------- aggregations over any [x, y]
+  const KI = {e:0, cv:1, g:2, ns:3, as:4, ad:5, sp:6, pu:7, pv:8};
+  const money = (x, y) => { const o = {e:0, cv:0, g:0, sp:0, pu:0, pv:0, asd:0, nd:0}; if (!x) return o;
+    for (const d of DK) if (d >= x && d <= y) { const v = T.days[d]; o.e += v[0]; o.cv += v[1]; o.g += v[2]; o.sp += v[6]; o.pu += v[7]; o.pv += v[8]; o.asd += v[4]; o.nd++; } return o; };
+  const smp = (x, y) => { const o = {n:0, c:0, by:{}, guess:0}; if (!x) return o; for (const s of T.samples || []) if (s[0] >= x && s[0] <= y) { o.n++; o.c += COST[s[2]] || 0; o.by[s[2]] = (o.by[s[2]] || 0) + 1; o.guess += s[3]; } return o; };
+  const pl = (x, y) => { const m = money(x, y), s = smp(x, y), cg = Math.round(m.pv * COGS), sh = m.pu * FUL;
+    return {...m, cogs:cg, ship:sh, smp:s, profit:m.pv - cg - sh - m.sp - m.e - s.c, roas:m.sp ? m.pv / m.sp : null}; };
+  const SUBS = T.subs || [], firstSub = {}, lastSubBefore = (cidx, y) => { let l = null; for (const s of SUBS) if (s[1] === cidx && s[0] <= y && (!l || s[0] > l)) l = s[0]; return l; };
+  for (const s of SUBS) if (s[1] >= 0 && (!firstSub[s[1]] || s[0] < firstSub[s[1]])) firstSub[s[1]] = s[0];
+  const content = (x, y) => { const o = {n:0, approved:0, pending:0, revision_requested:0, rejected:0, ads:0, who:new Set(), first:0, ret:0, by:{}}; if (!x) return o;
+    for (const s of SUBS) if (s[0] >= x && s[0] <= y) { o.n++; if (o[s[2]] != null) o[s[2]]++; o.ads += s[4]; o.who.add(s[1]); if (s[3]) o.by[s[3]] = (o.by[s[3]] || 0) + 1; }
+    for (const c of o.who) { if (firstSub[c] >= x) o.first++; else o.ret++; } return o; };
+  const joined = (x, y) => x ? CR.map((c, i) => [c, i]).filter(([c]) => c.on && c.j >= x && c.j <= y) : [];
+  const C = pl(a, b), Pv = pl(ca, cb), N = content(a, b), Nv = content(ca, cb);
+  const moneyEnd = b > last ? last : b, partial = b > last;
+  // ---------- helpers
+  const dl = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null || !ca) return `<span class="muted">${ca ? 'nothing to compare' : ''}</span>`; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
+    return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(0)}%</span> <span class="muted">vs ${CL}</span>`; };
+  const was = (txt) => ca ? `<div class="muted" style="font-size:11.5px;margin-top:2px">${txt}</div>` : '';
+  const kp = (l, v, sub, cls = '', tip = '', big) => `<div class="card kpi${big ? ' ty-big' : ''}"${tip ? ` title="${esc(tip)}"` : ''}><div class="lbl">${l}</div><div class="val num ${cls}">${v}</div><div class="delta">${sub}</div></div>`;
   const grid = (html, min = 170) => `<div class="grid kpis" style="grid-template-columns:repeat(auto-fit,minmax(${min}px,1fr));gap:12px;margin-top:12px">${html}</div>`;
-  const wl = w => w && w.s ? 'w/c ' + fmtD(w.s) : '';
-  h += `<div class="ty-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px"><b>Week</b>
-    <select id="tyW" class="btn ghost sm">${W.map((w, i) => `<option value="${i}" ${i === ix ? 'selected' : ''}>${wl(w)}${i === W.length - 1 ? ' (this week)' : ''}</option>`).join('')}</select>
-    <span class="muted">${partial ? 'Week still running: videos and sign-ups are live, money only has the days Trybe has closed (UTC, up to yesterday).' : 'Monday to Sunday, UTC.'} Compared with ${wl(pw) || 'nothing'}.</span></div>`;
+  const sec = (t, sub) => `<h2 class="sec" style="margin-top:26px">${t}</h2>${sub ? `<div class="muted" style="font-size:12.5px;margin:-6px 0 4px">${sub}</div>` : ''}`;
+  const chart = (id, t, sub, hgt = 260) => `<div class="card chart-card"><div class="ch-top"><div><h3>${t}</h3>${sub ? `<div class="sub">${sub}</div>` : ''}</div></div><div class="chart-wrap" style="height:${hgt}px"><canvas id="${id}"></canvas></div></div>`;
+  const span = nDays(a, b), g = S.tyg || (span <= 14 ? 'day' : span <= 120 ? 'week' : 'month');
+  const KEYF = {day:d => d, week:d => monday(d), month:d => d.slice(0, 7)}[g];
+  const bk = fillKeys(a, b, g), bEnd = kk => g === 'day' ? kk : g === 'week' ? addD(kk, 6) : mEndD(kk + '-01'), bStart = kk => g === 'month' ? kk + '-01' : kk;
+  const bLab = kk => g === 'month' ? MON(kk) + ' ' + kk.slice(2, 4) : g === 'week' ? 'w/c ' + fmtD(kk) : fmtD(kk);
+  const clipB = (kk) => [bStart(kk) < a ? a : bStart(kk), bEnd(kk) > b ? b : bEnd(kk)];
 
-  // ---------- the week
-  h += `<h2 class="sec">The week</h2>` + grid(
-    kp('Videos created', int(cw.videos), dl(cw.videos, pw.videos)) +
-    kp('Creators who submitted', int(cw.submitters), dl(cw.submitters, pw.submitters)) +
-    kp('First-time submitters', int(cw.first), dl(cw.first, pw.first)) +
-    kp('New sign-ups', int(cw.signups), dl(cw.signups, pw.signups), '', 'Creators who joined the roster this week (still active today)') +
-    kp('Approved', int(cw.approved), `${int(cw.pending)} pending · ${int(cw.revision_requested)} revision · ${int(cw.rejected)} rejected`) +
-    kp('Videos running as ads', int(P0.active_submissions), dl(P0.active_submissions, P1.active_submissions)));
+  h += rangeBar();
+  if (partial || (T.failed || []).length) h += `<div class="muted" style="font-size:12px;margin:-12px 0 12px">${partial ? `Money (spend, revenue, commission) is closed by Trybe up to ${fmtD(last)} (UTC); videos and sign-ups are live.` : ''}${(T.failed || []).length ? ` Trybe did not answer for ${T.failed.length} day(s): ${T.failed.map(fmtD).join(', ')}.` : ''}</div>`;
+
+  // ---------- verdict + the 6 main numbers
+  const win = C.profit >= 0;
+  h += `<div class="card ty-verdict ${win ? 'win' : 'loss'}"><div><div class="lbl">${fRange(a, moneyEnd < a ? a : moneyEnd)}</div>
+      <div class="ty-v">${C.sp || C.e || C.smp.n ? (win ? 'Making money' : 'Losing money') : 'No money moved yet'}</div>
+      <div class="muted" style="font-size:12.5px">${usd(C.pv)} revenue − ${usd(C.cogs + C.ship)} product, shipping and fees − ${usd(C.sp)} ads − ${usd(C.e)} commission − ${usd(C.smp.c)} free products</div></div>
+    <div class="ty-vn num ${win ? 'up' : 'down'}">${C.profit >= 0 ? '+' : ''}${usd(C.profit)}${ca ? `<small>${usd(Pv.profit)} ${CL}</small>` : ''}</div></div>`;
   h += grid(
-    kp('Ad spend on Trybe videos', usd(P0.spend_cents), dl(P0.spend_cents, P1.spend_cents, true)) +
-    kp('Meta purchase value', usd(P0.purchase_value_cents), dl(P0.purchase_value_cents, P1.purchase_value_cents), 'gold', 'Revenue Meta reports on the ads that use Trybe videos') +
-    kp('ROAS (Meta)', x2(ro(P0)), dl(ro(P0), ro(P1))) +
-    kp('Trybe GMV', usd(P0.trybe_gmv_cents), `${int(P0.trybe_conversions)} orders · ${dl(P0.trybe_gmv_cents, P1.trybe_gmv_cents)}`, '', 'Sales Trybe attributes to the creators (tracking links + ads). Can overlap with the Meta number, never add them.') +
-    kp('Creator pay', usd(P0.earnings_cents), dl(P0.earnings_cents, P1.earnings_cents, true), '', 'Commission + retainers + bonuses Trybe books for the week') +
-    kp('Left after ads + pay', usd(res(P0)), `<span class="muted">purchase value × ${pct(GM, 0)} margin − spend − pay</span>`, res(P0) >= 0 ? 'up' : 'down'));
+    kp('Videos created', int(N.n), dl(N.n, Nv.n) + was(`${int(Nv.n)} ${CL}`), '', 'Every submission sent in the dates, any review status', 1) +
+    kp('Ad spend', usd(C.sp), dl(C.sp, Pv.sp, true) + was(`${usd(Pv.sp)} ${CL}`), '', 'Meta spend on ads that run Trybe videos', 1) +
+    kp('Revenue', usd(C.pv), dl(C.pv, Pv.pv) + was(`${usd(Pv.pv)} ${CL}`), 'gold', 'Purchase value Meta reports on those ads', 1) +
+    kp('Profit', usd(C.profit), dl(C.profit, Pv.profit) + was(`${usd(Pv.profit)} ${CL}`), win ? 'up' : 'down', 'Revenue − product cost − shipping and fees − ad spend − commission − free products', 1) +
+    kp('ROAS', x2(C.roas), dl(C.roas, Pv.roas) + was(`${x2(Pv.roas)} ${CL} · break-even ${x2(1 / Math.max(.01, 1 - COGS - (C.pu && C.pv ? C.ship / C.pv : 0)))}`), C.roas >= 2 ? 'up' : C.roas ? 'down' : '', 'Meta purchase value ÷ ad spend', 1) +
+    kp('Creator commission', usd(C.e), dl(C.e, Pv.e, true) + was(`${usd(Pv.e)} ${CL}`), '', 'Commission + retainers + bonuses Trybe books for the creators', 1), 140).replace('class="grid kpis"', 'class="grid kpis ty-six"');
 
-  // ---------- do we lose money (program to date)
-  const A = T.all || {}, CR = T.creators || [];
-  const smp = CR.reduce((o, c) => { const s = c.sm || {}; o.f += s.fulfilled || 0; o.a += s.approved || 0; o.o += s.overdue || 0; return o; }, {f:0, a:0, o:0});
-  const resA = res(A) - smp.f * knife, comm = A.trybe_gmv_cents ? A.earnings_cents / A.trybe_gmv_cents : null;
-  h += `<h2 class="sec">Do we lose money? Since the program started${T.allRange && T.allRange[0] ? ` (${fmtD(T.allRange[0])} to ${fmtD(T.allRange[1])})` : ''}</h2>`;
-  h += grid(
-    kp('Ad spend', usd(A.spend_cents), `${int(A.ads)} ads`) +
-    kp('Meta purchase value', usd(A.purchase_value_cents), `${int(A.purchases)} purchases`, 'gold') +
-    kp('ROAS (Meta)', x2(ro(A)), `<span class="muted">break-even at ${GM ? x2(1 / GM) : '–'} before creator pay</span>`, ro(A) >= (GM ? 1 / GM : 9) ? 'up' : 'down') +
-    kp('Trybe GMV', usd(A.trybe_gmv_cents), `${int(A.trybe_conversions)} orders`) +
-    kp('Creator pay', usd(A.earnings_cents), comm != null ? `<span class="muted">${pct(comm, 1)} of Trybe GMV</span>` : '') +
-    kp('Free knives sent', int(smp.f), `<span class="muted">${int(smp.a)} approved · ${int(smp.o)} overdue (owe a video)</span>`) +
-    kp('Left after ads, pay' + (knife ? ', knives' : ''), usd(resA), `<span class="muted">${pct(GM, 0)} US gross margin (last 90 days)</span>`, resA >= 0 ? 'up' : 'down'), 160);
-  h += `<div class="card" style="margin-top:12px;padding:14px 16px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-    <span>Cost of one free knife sent (product + shipping):</span><input id="tyK" type="number" min="0" step="1" value="${knife ? knife / 100 : ''}" placeholder="type it once" style="width:110px" class="btn ghost sm">
-    <span class="muted">${knife ? `${int(smp.f)} knives × ${usd(knife)} = ${usd(smp.f * knife)} counted above.` : 'Not counted yet: type the cost and the free knives are taken off the result.'} Saved in this browser.</span></div>
-    <div class="muted" style="margin-top:8px">How the result is worked out: Meta purchase value on the ads that run Trybe videos × US gross margin (Triple Whale revenue minus product cost, last 90 days) − the ad spend − what Trybe pays the creators${knife ? ' − free knives' : ''}. Shipping, fees and returns are not taken off, so the real figure is lower. Trybe GMV is shown apart because it overlaps with the ad sales.</div></div>`;
+  // ---------- tabs
+  const TABS = [['profit','Profit'],['content','Videos'],['people','Creators: sign-ups & retention'],['board','Leaderboard'],['vids','Top videos']], tab = S.tyTab || 'profit';
+  h += `<div class="htabs" style="margin-top:22px" id="tyTabs">${TABS.map(([v, l]) => `<button data-v="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
+  const perTabs = `<div style="display:flex;gap:8px;align-items:center;margin-top:12px"><span class="muted" style="font-size:11px">Per</span><div class="tabs-mini" id="tyG">${[['day','Day'],['week','Week'],['month','Month']].map(([v, l]) => `<button data-v="${v}" class="${g === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
+  const after = [];
+  const opt = (stack, isMoney) => ({responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
+    plugins:{legend:{labels:{color:'#cfcfcf', boxWidth:10}}, tooltip:{callbacks:isMoney ? {label:c => c.dataset.label + ': ' + (c.raw < 0 ? '-$' : '$') + Math.abs(Math.round(c.raw)).toLocaleString('en-US')} : {}}},
+    scales:{x:{stacked:stack, ticks:{color:'#9a9a9a', maxRotation:0, autoSkip:true}, grid:{display:false}}, y:{stacked:stack, ticks:{color:'#9a9a9a', callback:v => isMoney ? (v < 0 ? '-$' : '$') + (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(Math.abs(v) >= 1e4 || v % 1000 === 0 ? 0 : 1) + 'k' : Math.abs(v)) : v}, grid:{color:'#ffffff12'}}}});
+  const mk = (id, cfg) => after.push(() => { const el = $('#' + id); if (el) charts[id] = new Chart(el, cfg); });
 
-  // ---------- weekly trend
-  h += `<h2 class="sec">Week by week</h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
-    <div class="card chart-card"><div class="ch-top"><div><h3>Videos and sign-ups</h3><div class="sub">Videos by review status, sign-ups as a line</div></div></div><div class="chart-wrap" style="height:260px"><canvas id="tyC1"></canvas></div></div>
-    <div class="card chart-card"><div class="ch-top"><div><h3>Money</h3><div class="sub">Spend + creator pay against purchase value; line = what is left</div></div></div><div class="chart-wrap" style="height:260px"><canvas id="tyC2"></canvas></div></div></div>`;
-  const rows = W.map((w, i) => { const p = w.perf || {}; return `<tr class="${i === ix ? 'on' : ''}"><td class="l">${wl(w)}${i === W.length - 1 ? ' <span class="muted">(running)</span>' : ''}</td><td>${int(w.signups)}</td><td>${int(w.submitters)}</td><td>${int(w.first)}</td><td>${int(w.videos)}</td><td>${int(w.approved)}</td>
-    <td>${usd(p.spend_cents)}</td><td>${usd(p.purchase_value_cents)}</td><td class="${ro(p) >= 2 ? 'up' : ro(p) ? 'down' : ''}">${x2(ro(p))}</td><td>${usd(p.trybe_gmv_cents)}</td><td>${usd(p.earnings_cents)}</td><td class="${res(p) >= 0 ? 'up' : 'down'}">${w.perf ? usd(res(p)) : '–'}</td></tr>`; }).reverse().join('');
-  h += `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Week</th><th>Sign-ups</th><th>Submitted</th><th>First time</th><th>Videos</th><th>Approved</th><th>Ad spend</th><th>Purchase value</th><th>ROAS</th><th>Trybe GMV</th><th>Creator pay</th><th>Left</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-
-  // ---------- creators
-  const cs = CR.map(c => ({...c, r:c.all || {}})).sort((a, b) => (b.r.sp || 0) - (a.r.sp || 0) || (b.r.e || 0) - (a.r.e || 0) || (b.subs.n || 0) - (a.subs.n || 0));
-  const showAll = S.tyAll, list = showAll ? cs : cs.slice(0, 25);
-  const cres = r => Math.round((r.pv || 0) * GM - (r.sp || 0) - (r.e || 0));
-  h += `<h2 class="sec">Creators (${int(CR.length)} on the roster)</h2><div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Creator</th><th class="l">Program</th><th>Joined</th><th>Videos</th><th>Approved</th><th>Free knives</th><th>Owes video</th><th>Ad spend</th><th>Purchase value</th><th>ROAS</th><th>Trybe GMV</th><th>Paid to them</th><th>Left</th></tr></thead><tbody>
-    ${list.map(c => { const r = c.r, rr = r.sp ? r.pv / r.sp : null, s = c.sm || {}; return `<tr><td class="l">${esc(c.n)}</td><td class="l muted">${esc((c.p || []).join(', ').replace(/NorthernKnife |Northernknife /g, ''))}</td><td>${c.j ? fmtD(c.j) : ''}</td><td>${int(c.subs.n)}</td><td>${int(c.subs.approved)}</td>
-      <td>${int(s.fulfilled)}</td><td class="${s.overdue ? 'down' : ''}">${s.overdue ? int(s.overdue) : ''}</td><td>${usd(r.sp)}</td><td>${usd(r.pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${usd(r.g)}</td><td>${usd(r.e)}</td><td class="${cres(r) >= 0 ? 'up' : 'down'}">${r.sp || r.e ? usd(cres(r)) : ''}</td></tr>`; }).join('')}</tbody></table></div>
-    ${cs.length > 25 ? `<button class="btn ghost sm" id="tyAll" style="margin-top:10px">${showAll ? 'Show top 25' : 'Show all ' + cs.length}</button>` : ''}`;
-
-  // ---------- top videos (last 30 days)
-  const SP = T.subs || {}, SR = SP.rows || [];
-  if (SR.length) {
-    const g = (r, ...ks) => { for (const kk of ks) if (r[kk] != null) return r[kk]; return null; };
-    h += `<h2 class="sec">Trybe videos in ads, last 30 days${SP.s ? ` (${fmtD(SP.s)} to ${fmtD(SP.e)})` : ''}</h2><div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">Video</th><th class="l">Creator</th><th>Spend</th><th>Purchase value</th><th>ROAS</th><th>Purchases</th><th>Trybe GMV</th><th>Paid to creator</th><th>Thumbstop</th><th class="l">Hook · style</th></tr></thead><tbody>
-      ${SR.slice(0, S.tySubAll ? 200 : 20).map(r => { const sp = g(r, 'sp', 'spend_cents') || 0, pv = g(r, 'pv', 'purchase_value_cents') || 0, rr = sp ? pv / sp : null, th = g(r, 'ts', 'thumbstop', 'thumbstop_rate'), tg = r.tg || {};
-        return `<tr><td class="l">${esc(g(r, 't', 'trybe_id') || '')}</td><td class="l">${esc(g(r, 'c', 'creator', 'creator_name') || '')}</td><td>${usd(sp)}</td><td>${usd(pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${int(g(r, 'pu', 'purchases'))}</td><td>${usd(g(r, 'g', 'trybe_gmv_cents'))}</td><td>${usd(g(r, 'ce', 'creator_earnings_cents'))}</td>
-        <td>${th != null ? pct(th > 1 ? th / 100 : th, 0) : '–'}</td><td class="l muted">${esc([tg.h, tg.s].filter(Boolean).join(' · ').replace(/_/g, ' '))}</td></tr>`; }).join('')}</tbody></table></div>
-      ${SR.length > 20 ? `<button class="btn ghost sm" id="tySubAll" style="margin-top:10px">${S.tySubAll ? 'Show top 20' : 'Show all ' + SR.length}</button>` : ''}`;
+  if (tab === 'profit') {
+    const BP = bk.map(kk => pl(...clipB(kk)));
+    h += perTabs + `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:12px;margin-top:10px">
+      ${chart('tyP1', `Profit per ${g}`, 'Green = made money, red = lost money')}
+      ${chart('tyP2', 'Where the money goes', 'Revenue against every cost')}</div>`;
+    mk('tyP1', {type:'bar', data:{labels:bk.map(bLab), datasets:[{label:'Profit', data:BP.map(x => x.profit / 100), backgroundColor:BP.map(x => x.profit >= 0 ? '#52b788' : '#e0605a'), borderRadius:4}]}, options:{...opt(false, true), plugins:{...opt(false, true).plugins, legend:{display:false}}}});
+    mk('tyP2', {type:'bar', data:{labels:bk.map(bLab), datasets:[
+      {label:'Revenue', data:BP.map(x => x.pv / 100), backgroundColor:'#52b788', borderRadius:3, stack:'in'},
+      {label:'Ad spend', data:BP.map(x => x.sp / 100), backgroundColor:'#e0605a', borderRadius:3, stack:'out'},
+      {label:'Product, shipping, fees', data:BP.map(x => (x.cogs + x.ship) / 100), backgroundColor:'#8a7a5c', borderRadius:3, stack:'out'},
+      {label:'Commission', data:BP.map(x => x.e / 100), backgroundColor:'#d9a441', borderRadius:3, stack:'out'},
+      {label:'Free products', data:BP.map(x => x.smp.c / 100), backgroundColor:'#6c8ebf', borderRadius:3, stack:'out'}]}, options:opt(true, true)});
+    const row = (l, c, p, cls = '', note = '') => `<tr class="${cls}"><td class="l">${l}${note ? ` <span class="muted" style="font-size:11.5px">${note}</span>` : ''}</td><td>${usd(c)}</td>${ca ? `<td class="muted">${usd(p)}</td>` : ''}</tr>`;
+    const byS = s => Object.entries(s.by).map(([k, n]) => `${n} ${TY_P[k] || k}`).join(' · ');
+    h += sec('The money, line by line', `${fRange(a, moneyEnd < a ? a : moneyEnd)}${ca ? ` against ${fRange(ca, cb)}` : ''}`) + `<div class="tbl-wrap"><table class="ty-pl"><thead><tr><th class="l"></th><th>This period</th>${ca ? `<th>${esc(cmpName())}</th>` : ''}</tr></thead><tbody>
+      ${row('Revenue', C.pv, Pv.pv, '', `${int(C.pu)} orders on Meta`)}
+      ${row('− Product cost', -C.cogs, -Pv.cogs, '', `${pct(COGS, 0)} of revenue (US COGS, last 90 days)`)}
+      ${row('− Shipping and fees', -C.ship, -Pv.ship, '', `$${(FUL / 100).toFixed(2)} per order (handling + payment fees, US last 365 days)`)}
+      ${row('− Ad spend', -C.sp, -Pv.sp)}
+      ${row('− Creator commission', -C.e, -Pv.e, '', C.g ? `${pct(C.e / C.g, 1)} of Trybe GMV` : '')}
+      ${row('− Free products sent', -C.smp.c, -Pv.smp.c, '', C.smp.n ? `${C.smp.n}: ${byS(C.smp)}` : 'none in these dates')}
+      ${row('= Profit', C.profit, Pv.profit, 'tot')}</tbody></table></div>`;
+    h += grid(
+      kp('Trybe GMV', usd(C.g), `${int(C.cv)} orders · ${dl(C.g, Pv.g)}`, '', 'Sales Trybe attributes to the creators (links + ads). It overlaps with the Meta revenue, so it is never added to it.') +
+      kp('Cost per purchase', C.pu ? usd(C.sp / C.pu, 0) : '–', dl(C.pu ? C.sp / C.pu : null, Pv.pu ? Pv.sp / Pv.pu : null, true)) +
+      kp('Videos live in ads', C.nd ? (C.asd / C.nd).toFixed(0) : '–', '<span class="muted">average per day</span>') +
+      kp('Free products sent', int(C.smp.n), `<span class="muted">${usd(C.smp.c)}${C.smp.guess ? ` · ${C.smp.guess} with no video yet counted as LOKI` : ''}</span>`), 170);
   }
-  h += `<div class="note">Source: Trybe (the creator platform), pulled with each hub refresh. Videos = every submission in any review status, by the day it was sent. Sign-ups = creators active on the roster today, by join date (people who left are not counted). Ad numbers are what Meta reports on ads using Trybe videos; Trybe GMV is Trybe's own attribution. Creator pay = commission + retainers + bonuses Trybe books. Owner only.</div>`;
+
+  if (tab === 'content') {
+    const BC = bk.map(kk => content(...clipB(kk)));
+    const apr = N.approved + N.rejected + N.revision_requested ? N.approved / (N.approved + N.rejected + N.revision_requested) : null, aprP = Nv.approved + Nv.rejected + Nv.revision_requested ? Nv.approved / (Nv.approved + Nv.rejected + Nv.revision_requested) : null;
+    h += grid(
+      kp('Videos created', int(N.n), dl(N.n, Nv.n)) +
+      kp('Approved', int(N.approved), `${int(N.pending)} waiting for review · ${int(N.revision_requested)} sent back · ${int(N.rejected)} rejected`) +
+      kp('Approval rate', apr == null ? '–' : pct(apr, 0), dl(apr, aprP), '', 'Approved ÷ every video already reviewed') +
+      kp('Already used in ads', N.n ? pct(N.ads / N.n, 0) : '–', `<span class="muted">${int(N.ads)} of the ${int(N.n)} videos</span>`) +
+      kp('Creators who sent videos', int(N.who.size), dl(N.who.size, Nv.who.size)) +
+      kp('Videos per creator', N.who.size ? (N.n / N.who.size).toFixed(1) : '–', dl(N.who.size ? N.n / N.who.size : null, Nv.who.size ? Nv.n / Nv.who.size : null)), 170);
+    h += `<div class="muted" style="font-size:12.5px;margin-top:10px">By product: ${Object.entries(N.by).sort((x, y) => y[1] - x[1]).map(([k, n]) => `<b>${TY_P[k] || k}</b> ${n}`).join(' · ') || 'none'}</div>`;
+    h += perTabs + `<div style="margin-top:10px">${chart('tyC1', `Videos per ${g}`, 'By review status')}</div>`;
+    mk('tyC1', {type:'bar', data:{labels:bk.map(bLab), datasets:[
+      {label:'Approved', data:BC.map(x => x.approved), backgroundColor:'#52b788', borderRadius:3},
+      {label:'Waiting', data:BC.map(x => x.pending), backgroundColor:'#6c8ebf', borderRadius:3},
+      {label:'Sent back', data:BC.map(x => x.revision_requested), backgroundColor:'#d9a441', borderRadius:3},
+      {label:'Rejected', data:BC.map(x => x.rejected), backgroundColor:'#e0605a', borderRadius:3}]}, options:opt(true)});
+  }
+
+  if (tab === 'people') {
+    const J = joined(a, b), Jv = joined(ca, cb);
+    const conv = arr => { const w = arr.filter(([, i]) => firstSub[i]); const dd = w.map(([c, i]) => nDays(c.j, firstSub[i]) - 1).filter(x => x >= 0).sort((x, y) => x - y);
+      return {n:arr.length, made:w.length, smp:arr.filter(([c]) => c.sa).length, med:dd.length ? dd[Math.floor(dd.length / 2)] : null}; };
+    const cj = conv(J), cjv = conv(Jv);
+    const quiet = y => { if (!y) return 0; const lim = addD(y, -30); let n = 0; for (const i in firstSub) { if (firstSub[i] > y) continue; const l = lastSubBefore(+i, y); if (l && l < lim) n++; } return n; };
+    const roster = y => y ? CR.filter(c => c.on && c.j && c.j <= y).length : 0;
+    const earners = (x, y) => { const s = new Set(); if (!x) return s; for (const d in T.cday) if (d >= x && d <= y) for (const r of T.cday[d]) if (r[1] > 0) s.add(r[0]); return s; };
+    const er = earners(a, b), erv = earners(ca, cb);
+    const owe = CR.filter(c => c.on && c.so > 0).length;
+    h += sec('Getting new creators', 'People who joined the roster in these dates (only creators still on the roster are counted)') + grid(
+      kp('New sign-ups', int(cj.n), dl(cj.n, cjv.n)) +
+      kp('Free products sent', int(C.smp.n), `<span class="muted">${usd(C.smp.c)} · ${Object.entries(C.smp.by).map(([k, n]) => `${n} ${TY_P[k] || k}`).join(' · ') || 'none'}</span>`) +
+      kp('Sign-ups who sent a video', cj.n ? pct(cj.made / cj.n, 0) : '–', `<span class="muted">${int(cj.made)} of ${int(cj.n)} so far${J.filter(([c]) => c.ob === 'not_yet_due').length ? ` · ${J.filter(([c]) => c.ob === 'not_yet_due').length} still before their video deadline` : ''}</span>` + (cjv.n ? ` · ${dl(cj.made / cj.n, cjv.made / cjv.n)}` : ''), '', 'Of the people who joined in these dates, how many have sent at least one video by today') +
+      kp('Days to first video', cj.med == null ? '–' : cj.med, `<span class="muted">median, sign-up to first video${cj.made < 5 ? ` (only ${cj.made} of these sign-ups so far)` : ''}</span>`) +
+      kp('First-time submitters', int(N.first), dl(N.first, Nv.first), '', 'Creators whose very first video was sent in these dates') +
+      kp('Owe a video now', int(owe), '<span class="muted">got a free product, video overdue</span>', owe ? 'down' : ''), 170);
+    h += sec('Keeping them', 'Creators who keep sending videos and earning') + grid(
+      kp('Active creators', int(N.who.size), dl(N.who.size, Nv.who.size), '', 'Sent at least one video in these dates') +
+      kp('Came back', int(N.ret), dl(N.ret, Nv.ret), '', 'Sent a video in these dates and had already sent one before') +
+      kp('Earning commission', int(er.size), dl(er.size, erv.size), '', 'Creators Trybe paid anything to in these dates') +
+      kp('Gone quiet', int(quiet(b)), `<span class="muted">sent videos before, nothing in the 30 days to ${fmtD(b)}</span>`, '', '') +
+      kp('Roster', int(roster(b)), `<span class="muted">creators on the roster on ${fmtD(b)}</span>`), 170);
+    const BJ = bk.map(kk => { const [x, y] = clipB(kk), c = content(x, y); return {j:joined(x, y).length, f:c.first, r:c.ret}; });
+    h += perTabs + `<div style="margin-top:10px">${chart('tyJ1', `Sign-ups and active creators per ${g}`, 'Bars: creators sending videos (new vs coming back); line: sign-ups')}</div>`;
+    mk('tyJ1', {type:'bar', data:{labels:bk.map(bLab), datasets:[
+      {type:'line', label:'Sign-ups', data:BJ.map(x => x.j), borderColor:'#c7b48b', backgroundColor:'#c7b48b', borderWidth:2, pointRadius:2, tension:.25},
+      {label:'First video', data:BJ.map(x => x.f), backgroundColor:'#6c8ebf', borderRadius:3, stack:'a'},
+      {label:'Came back', data:BJ.map(x => x.r), backgroundColor:'#52b788', borderRadius:3, stack:'a'}]}, options:opt(true)});
+  }
+
+  if (tab === 'board') {
+    const by = {}; const add = i => by[i] || (by[i] = {e:0, g:0, sp:0, pu:0, pv:0, v:0, smp:0});
+    for (const d in T.cday) if (d >= a && d <= b) for (const r of T.cday[d]) { const x = add(r[0]); x.e += r[1]; x.g += r[3]; x.sp += r[7]; x.pu += r[8]; x.pv += r[9]; }
+    for (const s of SUBS) if (s[0] >= a && s[0] <= b && s[1] >= 0) add(s[1]).v++;
+    for (const s of T.samples || []) if (s[0] >= a && s[0] <= b) add(s[1]).smp += COST[s[2]] || 0;
+    const rows = Object.entries(by).map(([i, x]) => ({c:CR[i] || {}, ...x, pr:x.pv - Math.round(x.pv * COGS) - x.pu * FUL - x.sp - x.e - x.smp}))
+      .sort((p, q) => (S.tySort === 'profit' ? q.pr - p.pr : 0) || q.sp - p.sp || q.v - p.v || q.e - p.e);
+    const list = S.tyAll ? rows : rows.slice(0, 25);
+    h += `<div style="display:flex;gap:8px;align-items:center;margin-top:12px"><span class="muted" style="font-size:11px">Sort by</span><div class="tabs-mini" id="tySort">${[['spend','Ad spend'],['profit','Profit']].map(([v, l]) => `<button data-v="${v}" class="${(S.tySort || 'spend') === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <span class="muted" style="font-size:12px">${rows.length} creators with videos, sales or a free product in these dates</span></div>
+      <div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Creator</th><th>Joined</th><th>Videos</th><th>Ad spend</th><th>Revenue</th><th>ROAS</th><th>Trybe GMV</th><th>Commission</th><th>Free product</th><th>Profit</th></tr></thead><tbody>
+      ${list.map(x => { const rr = x.sp ? x.pv / x.sp : null; return `<tr><td class="l">${esc(x.c.n || '')}${x.c.so ? ' <span class="pill bad" title="Owes a video for a free product">owes video</span>' : ''}</td><td>${x.c.j ? fmtD(x.c.j) : ''}</td><td>${int(x.v)}</td><td>${usd(x.sp)}</td><td>${usd(x.pv)}</td>
+        <td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${usd(x.g)}</td><td>${usd(x.e)}</td><td>${x.smp ? usd(x.smp) : ''}</td><td class="${x.pr >= 0 ? 'up' : 'down'}">${usd(x.pr)}</td></tr>`; }).join('')}</tbody></table></div>
+      ${rows.length > 25 ? `<button class="btn ghost sm" id="tyAll" style="margin-top:10px">${S.tyAll ? 'Show top 25' : 'Show all ' + rows.length}</button>` : ''}`;
+  }
+
+  if (tab === 'vids') {
+    const SP = T.vids || {}, SR = SP.rows || [];
+    h += `<div class="muted" style="font-size:12.5px;margin-top:12px">Trybe gives video results for one fixed window: ${SP.s ? `${fRange(SP.s, SP.e)}` : 'not pulled'} (the date bar does not change this table). Profit per video = revenue − product, shipping, fees − spend − commission.</div>`;
+    if (SR.length) h += `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Video</th><th class="l">Creator</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th>Purchases</th><th>Commission</th><th>Profit</th><th>Thumbstop</th><th class="l">Hook · style</th><th>In ads</th></tr></thead><tbody>
+      ${SR.slice(0, S.tySubAll ? 300 : 25).map(r => { const rr = r.sp ? r.pv / r.sp : null, tg = r.tg || {}, pr = r.pv - Math.round(r.pv * COGS) - (r.pu || 0) * FUL - r.sp - (r.ce || 0);
+        return `<tr><td class="l">${esc(r.t || '')}</td><td class="l">${esc(r.c || '')}</td><td>${usd(r.sp)}</td><td>${usd(r.pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${int(r.pu)}</td><td>${usd(r.ce)}</td><td class="${pr >= 0 ? 'up' : 'down'}">${usd(pr)}</td>
+        <td>${r.ts != null ? pct(r.ts > 1 ? r.ts / 100 : r.ts, 0) : '–'}</td><td class="l muted">${esc([tg.h, tg.s].filter(Boolean).join(' · ').replace(/_/g, ' '))}</td><td class="muted">${r.fd ? fmtD(r.fd) + ' – ' + fmtD(r.ld) : ''}</td></tr>`; }).join('')}</tbody></table></div>
+      ${SR.length > 25 ? `<button class="btn ghost sm" id="tySubAll" style="margin-top:10px">${S.tySubAll ? 'Show top 25' : 'Show all ' + SR.length}</button>` : ''}`;
+  }
+
+  h += `<div class="note" style="margin-top:22px">Source: Trybe (the creator platform), day by day, pulled with the hub refresh. Revenue and ROAS are what Meta reports on ads that use Trybe videos; Trybe GMV is Trybe's own attribution and overlaps with it. Product cost = US COGS share from Triple Whale; shipping and fees = handling + payment fees per order; free products = every sample approved for a creator at LOKI $22.40, Feather $32, Rolling $35 (product + shipping), dated on the approval of the creator's latest sample. Sign-ups only count creators still on the roster. Owner only.</div>`;
 
   afterRender.push(() => {
-    const sel = $('#tyW'); if (sel) sel.onchange = () => { S.tyw = +sel.value; render(); };
-    const kk = $('#tyK'); if (kk) kk.onchange = () => { LS('nkhub.trybeKnife', kk.value ? String(+kk.value) : null); render(); };
+    const on = (id, f) => { const el = $('#' + id); if (el) el.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { f(bt.dataset.v); render(); } }; };
+    on('tyTabs', v => { S.tyTab = v; }); on('tyG', v => { S.tyg = v; }); on('tySort', v => { S.tySort = v; });
     const al = $('#tyAll'); if (al) al.onclick = () => { S.tyAll = !S.tyAll; render(); };
     const sa = $('#tySubAll'); if (sa) sa.onclick = () => { S.tySubAll = !S.tySubAll; render(); };
-    const lab = W.map(w => fmtD(w.s)), opt = (stack, money) => ({responsive:true, maintainAspectRatio:false, interaction:{mode:'index', intersect:false},
-      plugins:{legend:{labels:{color:'#cfcfcf', boxWidth:10}}, tooltip:{callbacks:money ? {label:c => c.dataset.label + ': $' + Math.round(c.raw).toLocaleString('en-US')} : {}}},
-      scales:{x:{stacked:stack, ticks:{color:'#9a9a9a'}, grid:{display:false}}, y:{stacked:stack, ticks:{color:'#9a9a9a', callback:v => money ? '$' + (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v) : v}, grid:{color:'#ffffff12'}}}});
-    const c1 = $('#tyC1'); if (c1) charts.ty1 = new Chart(c1, {type:'bar', data:{labels:lab, datasets:[
-      {type:'line', label:'Sign-ups', data:W.map(w => w.signups || 0), borderColor:'#c7b48b', backgroundColor:'#c7b48b', borderWidth:2, pointRadius:2, tension:.25, stack:'l'},
-      {label:'Approved', data:W.map(w => w.approved || 0), backgroundColor:'#52b788', borderRadius:3, stack:'v'},
-      {label:'Pending', data:W.map(w => w.pending || 0), backgroundColor:'#6c8ebf', borderRadius:3, stack:'v'},
-      {label:'Revision', data:W.map(w => w.revision_requested || 0), backgroundColor:'#d9a441', borderRadius:3, stack:'v'},
-      {label:'Rejected', data:W.map(w => w.rejected || 0), backgroundColor:'#e0605a', borderRadius:3, stack:'v'}]}, options:opt(true)});
-    const c2 = $('#tyC2'); if (c2) charts.ty2 = new Chart(c2, {type:'bar', data:{labels:lab, datasets:[
-      {type:'line', label:'Left after ads + pay', data:W.map(w => res(w.perf) / 100), borderColor:'#c7b48b', backgroundColor:'#c7b48b', borderWidth:2, pointRadius:2, tension:.25, stack:'l'},
-      {label:'Purchase value', data:W.map(w => ((w.perf || {}).purchase_value_cents || 0) / 100), backgroundColor:'#52b788', borderRadius:3, stack:'in'},
-      {label:'Ad spend', data:W.map(w => ((w.perf || {}).spend_cents || 0) / 100), backgroundColor:'#e0605a', borderRadius:3, stack:'out'},
-      {label:'Creator pay', data:W.map(w => ((w.perf || {}).earnings_cents || 0) / 100), backgroundColor:'#d9a441', borderRadius:3, stack:'out'}]}, options:opt(true, true)});
+    after.forEach(f => f());
   });
   return h;
 }
-
 /* ---------------- personal bonus card (Andy 2026-11-17) ----------------
    One card per editor with the bonus of the running month, what earned it, what is close to the next tier and every round
    already paid. PREVIEW: owner only for now ("View as" picker); each editor gets his own password later, which will open
