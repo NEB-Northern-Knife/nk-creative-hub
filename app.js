@@ -386,7 +386,7 @@ function rangeBar(extra) {
   const yr = (x, y) => x.slice(0, 4) !== y.slice(0, 4) || x.slice(0, 4) !== D.today.slice(0, 4) ? fRange(x, y) : fmtD(x) === fmtD(y) ? fmtD(x) : `${fmtD(x)} – ${fmtD(y)}`;
   return `<div class="rangebar"><div class="seg" id="rPre">${QUICK.map(v => `<button data-v="${v}" class="${S.preset === v ? 'on' : ''}">${PRESETS.find(x => x[0] === v)[1]}</button>`).join('')}</div>
     <button class="dp-btn hdp" id="dpBtn"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span><small>${pl} · ${span} day${span > 1 ? 's' : ''}</small><b>${yr(S.from, S.to)}</b></span><i>▾</i></button>
-    <button class="dp-btn hdp cmp" id="cmpBtn"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><small>Compared with · ${cmpName()}</small><b>${ca ? yr(ca, cb) : 'Off'}</b></span><i>▾</i></button>
+    <button class="dp-btn hdp cmpb" id="cmpBtn"><svg viewBox="0 0 24 24"><path d="M7 7h11l-3-3M17 17H6l3 3"/></svg><span><small>Compared with · ${cmpName()}</small><b>${ca ? yr(ca, cb) : 'Off'}</b></span><i>▾</i></button>
     ${extra || ''}<span class="cmp">${S.page === 'health' || S.page === 'trybe' ? '' : mName(S.market, 'all markets')}${noC}${early}</span></div>`;
 }
 const DP = {a:null, b:null, hover:null, view:null, cfg:null};
