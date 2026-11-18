@@ -768,3 +768,5 @@ table.ty-pl td,table.ty-pl th{font-size:13.5px}table.ty-pl tr.tot td{font-weight
 .ty-sel{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
 .ty-sel select{background:var(--panel2);color:var(--text);border:1px solid var(--line2);border-radius:8px;padding:8px 10px;font-family:inherit;font-size:13px;min-width:150px}
 .ty-insight{margin-top:10px;padding:10px 14px;border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:8px;font-size:13px;background:var(--panel)}
+th.ty-sortable{cursor:pointer;user-select:none;white-space:nowrap}th.ty-sortable:hover{color:var(--text)}
+th.ty-sortable[data-sort=desc]::after{content:' ▼';color:var(--gold)}th.ty-sortable[data-sort=asc]::after{content:' ▲';color:var(--gold)}
