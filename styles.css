@@ -745,3 +745,10 @@ html{color-scheme:dark;scrollbar-color:#3a3a42 var(--bg)}
 .kpi.ty-big .val{font-size:28px}
 table.ty-pl td,table.ty-pl th{font-size:13.5px}table.ty-pl tr.tot td{font-weight:700;border-top:1px solid var(--line2)}
 .ty-six{grid-template-columns:repeat(6,minmax(0,1fr))!important}@media(max-width:1100px){.ty-six{grid-template-columns:repeat(3,minmax(0,1fr))!important}}@media(max-width:560px){.ty-six{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+/* date bar: every control the same height, compare right after the date button (Andy 2026-11-18) */
+.rangebar{align-items:center}
+.rangebar .seg{display:flex;align-items:center}
+.rangebar .seg button,.rangebar .dp-btn{height:46px;box-sizing:border-box;display:inline-flex;align-items:center;margin:0}
+.rangebar .seg button{padding:0 14px}
+.rangebar .dp-btn.hdp{padding:0 14px}
+.dp-btn.hdp.cmpb svg{stroke:#8a8a94}
