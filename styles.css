@@ -770,3 +770,5 @@ table.ty-pl td,table.ty-pl th{font-size:13.5px}table.ty-pl tr.tot td{font-weight
 .ty-insight{margin-top:10px;padding:10px 14px;border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:8px;font-size:13px;background:var(--panel)}
 th.ty-sortable{cursor:pointer;user-select:none;white-space:nowrap}th.ty-sortable:hover{color:var(--text)}
 th.ty-sortable[data-sort=desc]::after{content:' ▼';color:var(--gold)}th.ty-sortable[data-sort=asc]::after{content:' ▲';color:var(--gold)}
+.ty-prod{padding:14px 16px}.ty-prod-h{display:flex;justify-content:space-between;align-items:baseline;font-size:16px}.ty-prod-h .num{font-size:24px;font-weight:600}
+.ty-prod-g{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px}.ty-prod-g>div{display:flex;flex-direction:column;font-size:11.5px}.ty-prod-g small{color:var(--muted)}.ty-prod-g b{font-size:16px}
