@@ -1927,6 +1927,26 @@ async function start() {
    top videos. Profit = Meta purchase value - product cost (COGS) - shipping and fees per order - ad spend - creator commission
    - free products sent (LOKI $22.40, Feather $32, Rolling $35 each, product + shipping). Source: pipeline/trybe.py. */
 const TY_P = {loki:'LOKI', feather:'Feather', rolling:'Rolling sharpener'};
+const TYBLOB = {};
+/* click a column header: highest on top, click again: lowest on top (Andy 2026-11-18). Works on every table of the Trybe page. */
+function tyCell(td) { const t = (td.innerText || '').trim(); if (!t || t === '–') return null;
+  const d = /^(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)/.exec(t); if (d) return Date.parse(`${d[1]} ${d[2].slice(0, 3)} 2026`);
+  const n = /^(-?)\$?(-?[\d,]*\.?\d+)\s*(k)?%?$/.exec(t.split(/\s/)[0].replace(/^-\$/, '-$').replace('−', '-')); if (n && /\d/.test(t.split(/\s/)[0])) { const v = parseFloat(n[2].replace(/,/g, '')) * (n[3] ? 1000 : 1); return n[1] ? -v : v; }
+  return t.toLowerCase(); }
+function tySortable(root) {
+  S.tyTS = S.tyTS || {};
+  root.querySelectorAll('table').forEach((tb, ti) => { const key = (S.tyTab || 'profit') + ':' + ti, ths = [...tb.querySelectorAll('thead th')], body = tb.querySelector('tbody'); if (!body) return;
+    const apply = () => { const st = S.tyTS[key]; ths.forEach((th, i) => th.dataset.sort = st && st[0] === i ? st[1] : ''); if (!st) return;
+      const rows = [...body.rows], cell = r => r.cells[st[0]] ? tyCell(r.cells[st[0]]) : null;
+      rows.sort((x, y) => { const a = cell(x), b = cell(y); if (a == null && b == null) return 0; if (a == null) return 1; if (b == null) return -1;
+        const c = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b)); return st[1] === 'asc' ? c : -c; });
+      rows.forEach(r => body.appendChild(r)); };
+    ths.forEach((th, i) => { th.classList.add('ty-sortable'); th.onclick = () => { const st = S.tyTS[key];
+      const firstAsc = body.rows[0] && typeof tyCell(body.rows[0].cells[i] || document.createElement('td')) === 'string';
+      S.tyTS[key] = [i, st && st[0] === i ? (st[1] === 'desc' ? 'asc' : 'desc') : (firstAsc ? 'asc' : 'desc')];
+      if ((S.tyTab === 'board' && !S.tyAll) || (S.tyTab === 'vids' && !S.tySubAll)) { S.tyAll = S.tyTab === 'board' ? true : S.tyAll; S.tySubAll = S.tyTab === 'vids' ? true : S.tySubAll; render(); } else apply(); }; });
+    apply(); });
+}
 function pTrybe() {
   const T = HL && HL.trybe;
   let h = freshBar() + `<div class="page-head"><div><div class="kicker">Creator program · is it making money?</div><h1>Trybe creators</h1></div>
@@ -1941,7 +1961,17 @@ function pTrybe() {
   const money = (x, y) => { const o = {e:0, cv:0, g:0, sp:0, pu:0, pv:0, asd:0, nd:0}; if (!x) return o;
     for (const d of DK) if (d >= x && d <= y) { const v = T.days[d]; o.e += v[0]; o.cv += v[1]; o.g += v[2]; o.sp += v[6]; o.pu += v[7]; o.pv += v[8]; o.asd += v[4]; o.nd++; } return o; };
   const smp = (x, y) => { const o = {n:0, c:0, by:{}, guess:0}; if (!x) return o; for (const s of T.samples || []) if (s[0] >= x && s[0] <= y) { o.n++; o.c += COST[s[2]] || 0; o.by[s[2]] = (o.by[s[2]] || 0) + 1; o.guess += s[3]; } return o; };
-  const pl = (x, y) => { const m = money(x, y), s = smp(x, y), cg = Math.round(m.pv * COGS), sh = m.pu * FUL;
+  // ROAS by the attribution model picked on the left (Andy 2026-11-18): Triple Whale numbers of the Meta ads whose name carries trybe=<id>
+  const TYA = new Set(); D.ads.forEach((ad, i) => { if (/trybe=?[0-9a-f]{8}/i.test(ad.n)) TYA.add(i); });
+  const twR = (x, y) => { const o = {sp:0, rev:0, n:new Set(), r:null}; if (!x) return o; const [i0, i1] = idxRange(x, y);
+    for (const r of D.rows) if (TYA.has(r[0]) && r[1] >= i0 && r[1] <= i1) { o.sp += r[2]; o.rev += S.model === 'fc' ? r[4] : S.model === 'ta' ? r[5] : r[3]; if (r[2]) o.n.add(r[0]); }
+    o.r = o.sp ? o.rev / o.sp : null; o.n = o.n.size; return o; };
+  // revenue follows the attribution model too (Andy 2026-11-18): Trybe's ad spend x the model's ROAS on the Trybe ads Triple Whale can see.
+  // Orders (for shipping and fees) = that revenue / Meta's order value. Meta's own revenue stays in m.mpv for reference.
+  const pl = (x, y) => { const m = money(x, y), s = smp(x, y), tw = twR(x, y > last ? last : y);
+    m.mpv = m.pv; m.mpu = m.pu; m.tw = tw.sp > 0;
+    if (m.tw) { m.pv = Math.round(m.sp * tw.r); m.pu = m.mpv && m.mpu ? m.pv / (m.mpv / m.mpu) : 0; }
+    const cg = Math.round(m.pv * COGS), sh = Math.round(m.pu * FUL);
     return {...m, cogs:cg, ship:sh, smp:s, profit:m.pv - cg - sh - m.sp - m.e - s.c, roas:m.sp ? m.pv / m.sp : null}; };
   const SUBS = T.subs || [], firstSub = {}, lastSubBefore = (cidx, y) => { let l = null; for (const s of SUBS) if (s[1] === cidx && s[0] <= y && (!l || s[0] > l)) l = s[0]; return l; };
   for (const s of SUBS) if (s[1] >= 0 && (!firstSub[s[1]] || s[0] < firstSub[s[1]])) firstSub[s[1]] = s[0];
@@ -1951,12 +1981,7 @@ function pTrybe() {
   const joined = (x, y) => x ? CR.map((c, i) => [c, i]).filter(([c]) => c.on && c.j >= x && c.j <= y) : [];
   const C = pl(a, b), Pv = pl(ca, cb), N = content(a, b), Nv = content(ca, cb);
   const moneyEnd = b > last ? last : b, partial = b > last;
-  // ROAS by the attribution model picked on the left (Andy 2026-11-18): Triple Whale numbers of the Meta ads whose name carries trybe=<id>
-  const TYA = new Set(); D.ads.forEach((ad, i) => { if (/trybe=?[0-9a-f]{8}/i.test(ad.n)) TYA.add(i); });
-  const twR = (x, y) => { const o = {sp:0, rev:0, n:new Set(), r:null}; if (!x) return o; const [i0, i1] = idxRange(x, y);
-    for (const r of D.rows) if (TYA.has(r[0]) && r[1] >= i0 && r[1] <= i1) { o.sp += r[2]; o.rev += S.model === 'fc' ? r[4] : S.model === 'ta' ? r[5] : r[3]; if (r[2]) o.n.add(r[0]); }
-    o.r = o.sp ? o.rev / o.sp : null; o.n = o.n.size; return o; };
-  const TW = twR(a, b), TWp = twR(ca, cb);
+  const TW = twR(a, moneyEnd), TWp = ca ? twR(ca, cb) : twR(null);
   // ---------- helpers
   const dl = (c, p, inv) => { if (p == null || !isFinite(p) || p === 0 || c == null || !ca) return `<span class="muted">${ca ? 'nothing to compare' : ''}</span>`; const d = (c - p) / Math.abs(p), good = inv ? d < 0 : d > 0;
     return `<span class="${good ? 'up' : 'down'}">${d >= 0 ? '▲ +' : '▼ '}${(d * 100).toFixed(0)}%</span> <span class="muted">vs ${CL}</span>`; };
@@ -1983,10 +2008,10 @@ function pTrybe() {
   h += grid(
     kp('Videos created', int(N.n), dl(N.n, Nv.n) + was(`${int(Nv.n)} ${CL}`), '', 'Every submission sent in the dates, any review status', 1) +
     kp('Ad spend', usd(C.sp), dl(C.sp, Pv.sp, true) + was(`${usd(Pv.sp)} ${CL}`), '', 'Meta spend on ads that run Trybe videos', 1) +
-    kp('Revenue', usd(C.pv), dl(C.pv, Pv.pv) + was(`${usd(Pv.pv)} ${CL}`), 'gold', 'Purchase value Meta reports on those ads', 1) +
+    kp(`Revenue · ${MODELS[S.model]}`, usd(C.pv), dl(C.pv, Pv.pv) + was(`${usd(Pv.pv)} ${CL}`), 'gold', `Ad spend × ${MODELS[S.model]} ROAS (Triple Whale, on the Trybe ads it can see). Meta itself reports ${usd(C.mpv)}.`, 1) +
     kp('Profit', usd(C.profit), dl(C.profit, Pv.profit) + was(`${usd(Pv.profit)} ${CL}`), win ? 'up' : 'down', 'Revenue − product cost − shipping and fees − ad spend − commission − free products', 1) +
     kp(`ROAS · ${MODELS[S.model]}`, x2(TW.r), dl(TW.r, TWp.r) + was(`${x2(TWp.r)} ${CL} · break-even ${x2(1 / Math.max(.01, 1 - COGS - (C.pu && C.pv ? C.ship / C.pv : 0)))}`), TW.r >= 2 ? 'up' : TW.r ? 'down' : '',
-      `Triple Whale ${MODELS[S.model]} revenue ÷ spend on the ${TW.n} Meta ads named trybe=… (${usd(TW.sp * 100)} spend in these dates). Follows the attribution model picked on the left. Meta's own ROAS: ${x2(C.roas)}.`, 1) +
+      `Triple Whale ${MODELS[S.model]} revenue ÷ spend on the ${TW.n} Meta ads named trybe=… (${usd(TW.sp * 100)} spend in these dates). Follows the attribution model picked on the left. Meta's own ROAS: ${x2(C.sp ? C.mpv / C.sp : null)}.`, 1) +
     kp('Creator commission', usd(C.e), dl(C.e, Pv.e, true) + was(`${usd(Pv.e)} ${CL}`), '', 'Commission + retainers + bonuses Trybe books for the creators', 1), 140).replace('class="grid kpis"', 'class="grid kpis ty-six"');
 
   // ---------- tabs
@@ -2004,15 +2029,23 @@ function pTrybe() {
   const avatar = (ci, sz = 34) => { const c = CR[ci] || {}, ini = (c.n || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
     return c.av ? `<img class="ty-av" src="${c.av}" alt="" style="width:${sz}px;height:${sz}px">` : `<span class="ty-av ini" style="width:${sz}px;height:${sz}px">${esc(ini)}</span>`; };
   const who = (ci, extra = '') => { const c = CR[ci] || {}; return `<span class="ty-who">${avatar(ci)}<span><b>${esc(c.n || '')}</b>${c.tt ? `<small class="muted">@${esc(c.tt)}</small>` : c.ig ? `<small class="muted">@${esc(c.ig)}</small>` : ''}${extra}</span></span>`; };
-  const vid = (t, w = 54) => { if (!t) return ''; const m = TYV[t] || {}, poster = TH[t] || m.th; if (!poster && !m.v) return `<span class="muted">${esc(t)}</span>`;
-    return `<span class="ty-vid${m.v ? ' play' : ''}" data-src="${m.v ? esc(m.v) : ''}" data-poster="${esc(poster || '')}" data-t="${esc(t)}" style="width:${w}px;height:${Math.round(w * 16 / 9)}px">
-      ${poster ? `<img src="${esc(poster)}" loading="lazy" alt="">` : ''}${m.v ? '<video muted loop playsinline preload="none"></video><i>▶</i>' : ''}</span>`; };
+  const TVS = new Set(T.tv || []);
+  const vid = (t, w = 54) => { if (!t) return ''; const m = TYV[t] || {}, poster = TH[t] || m.th, sealed = TVS.has(t) && !m.v, ok = m.v || sealed; if (!poster && !ok) return `<span class="muted">${esc(t)}</span>`;
+    return `<span class="ty-vid${ok ? ' play' : ''}" data-src="${m.v ? esc(m.v) : ''}" data-tv="${sealed ? 1 : ''}" data-poster="${esc(poster || '')}" data-t="${esc(t)}" style="width:${w}px;height:${Math.round(w * 16 / 9)}px">
+      ${poster ? `<img src="${esc(poster)}" loading="lazy" alt="">` : ''}${ok ? '<video muted loop playsinline preload="none"></video><i>▶</i>' : ''}</span>`; };
+  // sealed copies (pipeline/trybe_videos.py): fetched and decrypted in the browser with the key from the owner layer
+  const vsrc = async el => { if (el.dataset.src) return el.dataset.src; if (!el.dataset.tv || !T.vk) return null; const t = el.dataset.t;
+    if (!TYBLOB[t]) TYBLOB[t] = (async () => { const b = new Uint8Array(await (await fetch(`data/tv/${t}.bin`)).arrayBuffer());
+      const kk = await crypto.subtle.importKey('raw', Uint8Array.from(atob(T.vk), c => c.charCodeAt(0)), 'AES-GCM', false, ['decrypt']);
+      return URL.createObjectURL(new Blob([await crypto.subtle.decrypt({name:'AES-GCM', iv:b.slice(0, 12)}, kk, b.slice(12))], {type:'video/mp4'})); })();
+    return TYBLOB[t]; };
   after.push(() => {
     document.querySelectorAll('.ty-vid').forEach(el => {
       const v = el.querySelector('video');
-      if (v) { el.onmouseenter = () => { if (!v.src) v.src = el.dataset.src; v.play().then(() => el.classList.add('on')).catch(() => {}); }; el.onmouseleave = () => { v.pause(); el.classList.remove('on'); }; }
-      el.onclick = () => { let bx = $('#tyBox'); if (!bx) { bx = document.createElement('div'); bx.id = 'tyBox'; document.body.appendChild(bx); bx.onclick = e => { if (e.target === bx) { bx.innerHTML = ''; bx.classList.remove('open'); } }; }
-        bx.innerHTML = `<div class="ty-box-in">${el.dataset.src ? `<video src="${el.dataset.src}" poster="${el.dataset.poster}" controls autoplay playsinline></video>` : `<img src="${el.dataset.poster}" alt=""><div class="muted" style="margin-top:6px;font-size:12px">This video never ran on Meta, so only its first frame is here. Watch it in Trybe.</div>`}
+      if (v) { el.onmouseenter = async () => { el._in = 1; if (!v.src) { const u = await vsrc(el).catch(() => null); if (!u) return; v.src = u; } if (el._in) v.play().then(() => el.classList.add('on')).catch(() => {}); };
+        el.onmouseleave = () => { el._in = 0; v.pause(); el.classList.remove('on'); }; }
+      el.onclick = async () => { const src = await vsrc(el).catch(() => null); let bx = $('#tyBox'); if (!bx) { bx = document.createElement('div'); bx.id = 'tyBox'; document.body.appendChild(bx); bx.onclick = e => { if (e.target === bx) { bx.innerHTML = ''; bx.classList.remove('open'); } }; }
+        bx.innerHTML = `<div class="ty-box-in">${src ? `<video src="${src}" poster="${el.dataset.poster}" controls autoplay playsinline></video>` : `<img src="${el.dataset.poster}" alt=""><div class="muted" style="margin-top:6px;font-size:12px;max-width:340px">No copy of this video is in the hub yet, only its first frame. It gets added with the next Trybe video pull.</div>`}
           <div class="ty-box-cap">Trybe ID ${esc(el.dataset.t)} <button class="btn ghost sm" id="tyBoxX">Close</button></div></div>`;
         bx.classList.add('open'); $('#tyBoxX').onclick = () => { bx.innerHTML = ''; bx.classList.remove('open'); }; };
     });
@@ -2036,7 +2069,7 @@ function pTrybe() {
     const row = (l, c, p, cls = '', note = '') => `<tr class="${cls}"><td class="l">${l}${note ? ` <span class="muted" style="font-size:11.5px">${note}</span>` : ''}</td><td>${usd(c)}</td>${ca ? `<td class="muted">${usd(p)}</td>` : ''}</tr>`;
     const byS = s => Object.entries(s.by).map(([k, n]) => `${n} ${TY_P[k] || k}`).join(' · ');
     h += sec('The money, line by line', `${fRange(a, moneyEnd < a ? a : moneyEnd)}${ca ? ` against ${fRange(ca, cb)}` : ''}`) + `<div class="tbl-wrap"><table class="ty-pl"><thead><tr><th class="l"></th><th>This period</th>${ca ? `<th>${esc(cmpName())}</th>` : ''}</tr></thead><tbody>
-      ${row('Revenue', C.pv, Pv.pv, '', `${int(C.pu)} orders on Meta`)}
+      ${row(`Revenue (${MODELS[S.model]})`, C.pv, Pv.pv, '', C.tw ? `${usd(C.sp)} ad spend × ${x2(C.roas)} ${MODELS[S.model]} ROAS from Triple Whale · about ${int(C.pu)} orders · Meta reports ${usd(C.mpv)}` : `no Triple Whale data for these days, Meta's number`)}
       ${row('− Product cost', -C.cogs, -Pv.cogs, '', `${pct(COGS, 0)} of revenue (US COGS, last 90 days)`)}
       ${row('− Shipping and fees', -C.ship, -Pv.ship, '', `$${(FUL / 100).toFixed(2)} per order (handling + payment fees, US last 365 days)`)}
       ${row('− Ad spend', -C.sp, -Pv.sp)}
@@ -2217,6 +2250,7 @@ function pTrybe() {
     const al = $('#tyAll'); if (al) al.onclick = () => { S.tyAll = !S.tyAll; render(); };
     const sa = $('#tySubAll'); if (sa) sa.onclick = () => { S.tySubAll = !S.tySubAll; render(); };
     after.forEach(f => f());
+    tySortable($('#view'));
   });
   return h;
 }
