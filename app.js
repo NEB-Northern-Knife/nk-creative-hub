@@ -1961,20 +1961,29 @@ function pTrybe() {
   const money = (x, y) => { const o = {e:0, cv:0, g:0, sp:0, pu:0, pv:0, asd:0, nd:0}; if (!x) return o;
     for (const d of DK) if (d >= x && d <= y) { const v = T.days[d]; o.e += v[0]; o.cv += v[1]; o.g += v[2]; o.sp += v[6]; o.pu += v[7]; o.pv += v[8]; o.asd += v[4]; o.nd++; } return o; };
   const smp = (x, y) => { const o = {n:0, c:0, by:{}, guess:0}; if (!x) return o; for (const s of T.samples || []) if (s[0] >= x && s[0] <= y) { o.n++; o.c += COST[s[2]] || 0; o.by[s[2]] = (o.by[s[2]] || 0) + 1; o.guess += s[3]; } return o; };
-  // ROAS by the attribution model picked on the left (Andy 2026-11-18): Triple Whale numbers of the Meta ads whose name carries trybe=<id>
-  const TYA = new Set(); D.ads.forEach((ad, i) => { if (/trybe=?[0-9a-f]{8}/i.test(ad.n)) TYA.add(i); });
-  const twR = (x, y) => { const o = {sp:0, rev:0, n:new Set(), r:null}; if (!x) return o; const [i0, i1] = idxRange(x, y);
-    for (const r of D.rows) if (TYA.has(r[0]) && r[1] >= i0 && r[1] <= i1) { o.sp += r[2]; o.rev += S.model === 'fc' ? r[4] : S.model === 'ta' ? r[5] : r[3]; if (r[2]) o.n.add(r[0]); }
-    o.r = o.sp ? o.rev / o.sp : null; o.n = o.n.size; return o; };
-  // revenue follows the attribution model too (Andy 2026-11-18): Trybe's ad spend x the model's ROAS on the Trybe ads Triple Whale can see.
-  // Orders (for shipping and fees) = that revenue / Meta's order value. Meta's own revenue stays in m.mpv for reference.
+  // Triple Whale, by the attribution model picked on the left (Andy 2026-11-18). Every Trybe ad runs in one Meta campaign
+  // (PERSO_USA_TRYBE_UGC), pulled whole per day for the 3 models (pipeline/trybe_tw.py), plus each ad per day in First Click and Triple.
+  const TWC = (T.tw && T.tw.camp) || {}, TWA = (T.tw && T.tw.ads) || {}, MK = {fc:'fc', ta:'ta', pl:'cv'}[S.model] || 'ta';
+  const twR = (x, y) => { const o = {sp:0, rev:0, o:0, ta:0, tao:0, cv:0, cvo:0, n:0, r:null}; if (!x) return o;
+    for (const d in TWC) if (d >= x && d <= y) { const v = TWC[d]; o.sp += v.sp || 0; o.rev += v[MK] || 0; o.o += v[MK + 'o'] || 0; o.ta += v.ta || 0; o.tao += v.tao || 0; o.cv += v.cv || 0; o.cvo += v.cvo || 0; }
+    for (const t in TWA) { for (const d in TWA[t].d) if (d >= x && d <= y && TWA[t].d[d][0] > 0) { o.n++; break; } }
+    o.r = o.sp ? o.rev / o.sp : null; return o; };
+  // one ad in [x, y] under the model; C&D per ad = its Triple numbers x the campaign's C&D / Triple on the same days
+  const adM = (t, x, y) => { const a = TWA[t], o = {sp:0, rev:0, o:0}; if (!a || !x) return o;
+    for (const d in a.d) if (d >= x && d <= y) { const v = a.d[d]; o.sp += v[0]; if (MK === 'fc') { o.rev += v[1]; o.o += v[3]; } else { o.rev += v[2]; o.o += v[4]; } }
+    if (MK === 'cv') { const c = twR(x, y); o.rev *= c.ta ? c.cv / c.ta : 1; o.o *= c.tao ? c.cvo / c.tao : 1; } return o; };
+  const HASTW = Object.keys(TWC).length > 0;
+  // revenue and orders follow the model; Meta's own numbers stay in m.mpv / m.mpu for reference
   const pl = (x, y) => { const m = money(x, y), s = smp(x, y), tw = twR(x, y > last ? last : y);
     m.mpv = m.pv; m.mpu = m.pu; m.tw = tw.sp > 0;
-    if (m.tw) { m.pv = Math.round(m.sp * tw.r); m.pu = m.mpv && m.mpu ? m.pv / (m.mpv / m.mpu) : 0; }
+    if (m.tw) { m.pv = Math.round(tw.rev * 100); m.pu = tw.o; }
     const cg = Math.round(m.pv * COGS), sh = Math.round(m.pu * FUL);
     return {...m, cogs:cg, ship:sh, smp:s, profit:m.pv - cg - sh - m.sp - m.e - s.c, roas:m.sp ? m.pv / m.sp : null}; };
   const SUBS = T.subs || [], firstSub = {}, lastSubBefore = (cidx, y) => { let l = null; for (const s of SUBS) if (s[1] === cidx && s[0] <= y && (!l || s[0] > l)) l = s[0]; return l; };
   for (const s of SUBS) if (s[1] >= 0 && (!firstSub[s[1]] || s[0] < firstSub[s[1]])) firstSub[s[1]] = s[0];
+  const t2ci = {}, t2pk = {}; for (const s of SUBS) if (s[6]) { t2ci[s[6]] = s[1]; t2pk[s[6]] = s[3]; }
+  // per-video rows of Trybe's fixed window, with revenue and orders under the model when Triple Whale has the ad
+  const modelRows = rows => rows.map(r => { if (!TWA[r.t]) return r; const m = adM(r.t, (T.vids || {}).s, (T.vids || {}).e); return {...r, pv:Math.round(m.rev * 100), pu:m.o}; });
   const content = (x, y) => { const o = {n:0, approved:0, pending:0, revision_requested:0, rejected:0, ads:0, who:new Set(), first:0, ret:0, by:{}}; if (!x) return o;
     for (const s of SUBS) if (s[0] >= x && s[0] <= y) { o.n++; if (o[s[2]] != null) o[s[2]]++; o.ads += s[4]; o.who.add(s[1]); if (s[3]) o.by[s[3]] = (o.by[s[3]] || 0) + 1; }
     for (const c of o.who) { if (firstSub[c] >= x) o.first++; else o.ret++; } return o; };
@@ -2008,14 +2017,14 @@ function pTrybe() {
   h += grid(
     kp('Videos created', int(N.n), dl(N.n, Nv.n) + was(`${int(Nv.n)} ${CL}`), '', 'Every submission sent in the dates, any review status', 1) +
     kp('Ad spend', usd(C.sp), dl(C.sp, Pv.sp, true) + was(`${usd(Pv.sp)} ${CL}`), '', 'Meta spend on ads that run Trybe videos', 1) +
-    kp(`Revenue · ${MODELS[S.model]}`, usd(C.pv), dl(C.pv, Pv.pv) + was(`${usd(Pv.pv)} ${CL}`), 'gold', `Ad spend × ${MODELS[S.model]} ROAS (Triple Whale, on the Trybe ads it can see). Meta itself reports ${usd(C.mpv)}.`, 1) +
+    kp(`Revenue · ${MODELS[S.model]}`, usd(C.pv), dl(C.pv, Pv.pv) + was(`${usd(Pv.pv)} ${CL}`), 'gold', `Triple Whale ${MODELS[S.model]} revenue of the Trybe campaign (every Trybe ad). Meta itself reports ${usd(C.mpv)}.`, 1) +
     kp('Profit', usd(C.profit), dl(C.profit, Pv.profit) + was(`${usd(Pv.profit)} ${CL}`), win ? 'up' : 'down', 'Revenue − product cost − shipping and fees − ad spend − commission − free products', 1) +
     kp(`ROAS · ${MODELS[S.model]}`, x2(TW.r), dl(TW.r, TWp.r) + was(`${x2(TWp.r)} ${CL} · break-even ${x2(1 / Math.max(.01, 1 - COGS - (C.pu && C.pv ? C.ship / C.pv : 0)))}`), TW.r >= 2 ? 'up' : TW.r ? 'down' : '',
-      `Triple Whale ${MODELS[S.model]} revenue ÷ spend on the ${TW.n} Meta ads named trybe=… (${usd(TW.sp * 100)} spend in these dates). Follows the attribution model picked on the left. Meta's own ROAS: ${x2(C.sp ? C.mpv / C.sp : null)}.`, 1) +
+      `Triple Whale ${MODELS[S.model]} revenue ÷ spend of the Trybe campaign (${TW.n} ads, ${usd(TW.sp * 100)} spend in these dates). Follows the attribution model picked on the left. Meta's own ROAS: ${x2(C.sp ? C.mpv / C.sp : null)}.`, 1) +
     kp('Creator commission', usd(C.e), dl(C.e, Pv.e, true) + was(`${usd(Pv.e)} ${CL}`), '', 'Commission + retainers + bonuses Trybe books for the creators', 1), 140).replace('class="grid kpis"', 'class="grid kpis ty-six"');
 
   // ---------- tabs
-  const TABS = [['profit','Profit'],['content','Videos'],['people','Creators: sign-ups & retention'],['board','Leaderboard'],['vids','Top videos'],['corr','Correlations']], tab = S.tyTab || 'profit';
+  const TABS = [['profit','Profit'],['content','Videos'],['people','Creators: sign-ups & retention'],['board','Leaderboard'],['prod','Products'],['vids','Top videos'],['corr','Correlations']], tab = S.tyTab || 'profit';
   h += `<div class="htabs" style="margin-top:22px" id="tyTabs">${TABS.map(([v, l]) => `<button data-v="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const perTabs = `<div style="display:flex;gap:8px;align-items:center;margin-top:12px"><span class="muted" style="font-size:11px">Per</span><div class="tabs-mini" id="tyG">${[['day','Day'],['week','Week'],['month','Month']].map(([v, l]) => `<button data-v="${v}" class="${g === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
   const after = [];
@@ -2069,7 +2078,7 @@ function pTrybe() {
     const row = (l, c, p, cls = '', note = '') => `<tr class="${cls}"><td class="l">${l}${note ? ` <span class="muted" style="font-size:11.5px">${note}</span>` : ''}</td><td>${usd(c)}</td>${ca ? `<td class="muted">${usd(p)}</td>` : ''}</tr>`;
     const byS = s => Object.entries(s.by).map(([k, n]) => `${n} ${TY_P[k] || k}`).join(' · ');
     h += sec('The money, line by line', `${fRange(a, moneyEnd < a ? a : moneyEnd)}${ca ? ` against ${fRange(ca, cb)}` : ''}`) + `<div class="tbl-wrap"><table class="ty-pl"><thead><tr><th class="l"></th><th>This period</th>${ca ? `<th>${esc(cmpName())}</th>` : ''}</tr></thead><tbody>
-      ${row(`Revenue (${MODELS[S.model]})`, C.pv, Pv.pv, '', C.tw ? `${usd(C.sp)} ad spend × ${x2(C.roas)} ${MODELS[S.model]} ROAS from Triple Whale · about ${int(C.pu)} orders · Meta reports ${usd(C.mpv)}` : `no Triple Whale data for these days, Meta's number`)}
+      ${row(`Revenue (${MODELS[S.model]})`, C.pv, Pv.pv, '', C.tw ? `Triple Whale ${MODELS[S.model]} on the Trybe campaign · ${int(C.pu)} orders · Meta reports ${usd(C.mpv)}` : `no Triple Whale data for these days, Meta's number`)}
       ${row('− Product cost', -C.cogs, -Pv.cogs, '', `${pct(COGS, 0)} of revenue (US COGS, last 90 days)`)}
       ${row('− Shipping and fees', -C.ship, -Pv.ship, '', `$${(FUL / 100).toFixed(2)} per order (handling + payment fees, US last 365 days)`)}
       ${row('− Ad spend', -C.sp, -Pv.sp)}
@@ -2136,6 +2145,8 @@ function pTrybe() {
   if (tab === 'board') {
     const by = {}; const add = i => by[i] || (by[i] = {e:0, g:0, sp:0, pu:0, pv:0, v:0, smp:0});
     for (const d in T.cday) if (d >= a && d <= b) for (const r of T.cday[d]) { const x = add(r[0]); x.e += r[1]; x.g += r[3]; x.sp += r[7]; x.pu += r[8]; x.pv += r[9]; }
+    if (HASTW) { for (const i in by) { by[i].pv = 0; by[i].pu = 0; }
+      for (const t in TWA) { const ci = t2ci[t]; if (ci == null || ci < 0) continue; const m = adM(t, a, b > last ? last : b); if (!m.rev && !m.o) continue; const x = add(ci); x.pv += Math.round(m.rev * 100); x.pu += m.o; } }
     for (const s of SUBS) if (s[0] >= a && s[0] <= b && s[1] >= 0) add(s[1]).v++;
     for (const s of T.samples || []) if (s[0] >= a && s[0] <= b) add(s[1]).smp += COST[s[2]] || 0;
     const rows = Object.entries(by).map(([i, x]) => ({ci:+i, c:CR[i] || {}, ...x, pr:x.pv - Math.round(x.pv * COGS) - x.pu * FUL - x.sp - x.e - x.smp}))
@@ -2149,9 +2160,57 @@ function pTrybe() {
       ${rows.length > 25 ? `<button class="btn ghost sm" id="tyAll" style="margin-top:10px">${S.tyAll ? 'Show top 25' : 'Show all ' + rows.length}</button>` : ''}`;
   }
 
+  if (tab === 'prod') {
+    // one column per product (Andy 2026-11-18): videos, spend, revenue (model), profit... Spend, revenue and orders per ad from
+    // Triple Whale (product read from the ad name), videos and free products from Trybe, commission split per creator by where
+    // their ad spend went (or by what their videos show when they had no spend).
+    const PK = ['loki', 'feather', 'rolling'], PC = {loki:'#c7b48b', feather:'#6c8ebf', rolling:'#52b788'};
+    const prodStats = (x, y) => { const me = y > last ? last : y, o = {}; for (const p of PK) o[p] = {v:0, ap:0, ads:0, sp:0, rev:0, or:0, e:0, smp:0, ns:0, who:new Set()};
+      if (!x) return o;
+      for (const s of SUBS) if (s[0] >= x && s[0] <= y && o[s[3]]) { const q = o[s[3]]; q.v++; q.ap += s[2] === 'approved'; q.ads += s[4]; q.who.add(s[1]); }
+      const csp = {}; // creator -> product -> TW spend
+      for (const t in TWA) { const pk = TWA[t].pk || t2pk[t]; if (!o[pk]) continue; const m = adM(t, x, me); if (!m.sp && !m.rev) continue;
+        o[pk].sp += m.sp; o[pk].rev += m.rev; o[pk].or += m.o; const ci = t2ci[t]; if (ci != null && ci >= 0) { const c = csp[ci] || (csp[ci] = {}); c[pk] = (c[pk] || 0) + m.sp; } }
+      const mix = {}; for (const s of SUBS) if (s[1] >= 0 && o[s[3]]) { const c = mix[s[1]] || (mix[s[1]] = {}); c[s[3]] = (c[s[3]] || 0) + 1; }
+      for (const d in T.cday) if (d >= x && d <= me) for (const r of T.cday[d]) { if (!r[1]) continue; const w = csp[r[0]] || mix[r[0]] || {loki:1}, tot = Object.values(w).reduce((p, q) => p + q, 0) || 1;
+        for (const p in w) if (o[p]) o[p].e += r[1] * w[p] / tot; }
+      for (const s of T.samples || []) if (s[0] >= x && s[0] <= y && o[s[2]]) { o[s[2]].smp += COST[s[2]] || 0; o[s[2]].ns++; }
+      for (const p of PK) { const q = o[p]; q.rev100 = Math.round(q.rev * 100); q.sp100 = Math.round(q.sp * 100); q.cogs = Math.round(q.rev100 * COGS); q.fees = Math.round(q.or * FUL);
+        q.pr = q.rev100 - q.cogs - q.fees - q.sp100 - Math.round(q.e) - q.smp; q.roas = q.sp ? q.rev / q.sp : null; q.who = q.who.size; }
+      return o; };
+    const PS = prodStats(a, b), PV = prodStats(ca, cb), act = PK.filter(p => PS[p].v || PS[p].sp || PS[p].ns || PV[p].sp);
+    const tot = k => act.reduce((x, p) => x + (PS[p][k] || 0), 0), totV = k => act.reduce((x, p) => x + (PV[p][k] || 0), 0);
+    // headline cards: one per product
+    h += `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:12px">${act.map(p => { const q = PS[p], v = PV[p];
+      return `<div class="card ty-prod" style="border-top:3px solid ${PC[p]}"><div class="ty-prod-h"><b>${TY_P[p]}</b><span class="num ${q.pr >= 0 ? 'up' : 'down'}">${q.pr >= 0 ? '+' : ''}${usd(q.pr)}</span></div>
+        <div class="muted" style="font-size:11.5px;margin:-2px 0 8px">profit · ${ca ? `${usd(v.pr)} ${CL}` : ''}</div>
+        <div class="ty-prod-g"><div><small>Videos made</small><b>${int(q.v)}</b>${dl(q.v, v.v)}</div><div><small>Ad spend</small><b>${usd(q.sp100)}</b>${dl(q.sp, v.sp, true)}</div>
+          <div><small>Revenue · ${MODELS[S.model]}</small><b>${usd(q.rev100)}</b>${dl(q.rev, v.rev)}</div><div><small>ROAS</small><b class="${q.roas >= 2 ? 'up' : q.roas ? 'down' : ''}">${x2(q.roas)}</b>${dl(q.roas, v.roas)}</div>
+          <div><small>Commission</small><b>${usd(q.e)}</b></div><div><small>Free products</small><b>${int(q.ns)} · ${usd(q.smp)}</b></div></div></div>`; }).join('')}</div>`;
+    // line by line, products side by side
+    const line = (l, f, cls, note) => `<tr class="${cls || ''}"><td class="l">${l}${note ? ` <span class="muted" style="font-size:11.5px">${note}</span>` : ''}</td>${act.map(p => `<td>${f(PS[p])}</td>`).join('')}<td><b>${f(Object.fromEntries(['v','ap','ads','who','sp100','rev100','or','cogs','fees','e','smp','ns','pr'].map(k => [k, tot(k)])))}</b></td></tr>`;
+    h += sec('Product by product', `${fRange(a, b > last ? last : b)} · revenue and orders: Triple Whale ${MODELS[S.model]}`) + `<div class="tbl-wrap"><table class="ty-pl"><thead><tr><th class="l"></th>${act.map(p => `<th>${TY_P[p]}</th>`).join('')}<th>All products</th></tr></thead><tbody>
+      ${line('Videos made', q => int(q.v))}${line('Approved', q => int(q.ap))}${line('Used in ads', q => int(q.ads))}${line('Creators who made them', q => int(q.who))}
+      ${line('Profit per video', q => q.v ? usd(q.pr / q.v) : '–', '', 'profit ÷ videos made in these dates')}
+      ${line('Revenue', q => usd(q.rev100))}${line('− Product cost', q => usd(-q.cogs))}${line('− Shipping and fees', q => usd(-q.fees), '', `${int(tot('or'))} orders`)}
+      ${line('− Ad spend', q => usd(-q.sp100))}${line('− Creator commission', q => usd(-q.e))}${line('− Free products sent', q => `${usd(-q.smp)}${q.ns ? ` <span class="muted">(${q.ns})</span>` : ''}`)}
+      ${line('= Profit', q => `<span class="${q.pr >= 0 ? 'up' : 'down'}">${usd(q.pr)}</span>`, 'tot')}
+      ${line('ROAS', q => x2(q.sp100 ? q.rev100 / q.sp100 : null))}${line('Cost per purchase', q => q.or ? usd(q.sp100 / q.or) : '–')}</tbody></table></div>`;
+    // over time
+    const BPk = bk.map(kk => prodStats(...clipB(kk)));
+    h += perTabs + `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:12px;margin-top:10px">
+      ${chart('tyPr1', `Profit per ${g}, by product`, 'Above zero = made money')}${chart('tyPr2', `Ad spend per ${g}, by product`, '')}${chart('tyPr3', `Videos made per ${g}, by product`, '')}${chart('tyPr4', `ROAS per ${g}, by product`, `Triple Whale ${MODELS[S.model]}`)}</div>`;
+    const dsP = (f, stack) => act.map(p => ({label:TY_P[p], data:BPk.map(o => f(o[p])), backgroundColor:PC[p], borderColor:PC[p], borderRadius:3, ...(stack ? {stack:'s'} : {})}));
+    mk('tyPr1', {type:'bar', data:{labels:bk.map(bLab), datasets:dsP(q => q.pr / 100)}, options:opt(false, true)});
+    mk('tyPr2', {type:'bar', data:{labels:bk.map(bLab), datasets:dsP(q => q.sp, true)}, options:opt(true, true)});
+    mk('tyPr3', {type:'bar', data:{labels:bk.map(bLab), datasets:dsP(q => q.v, true)}, options:opt(true)});
+    mk('tyPr4', {type:'line', data:{labels:bk.map(bLab), datasets:act.map(p => ({label:TY_P[p], data:BPk.map(o => o[p].roas), borderColor:PC[p], backgroundColor:PC[p], borderWidth:2, pointRadius:2, tension:.25, spanGaps:true}))}, options:opt(false)});
+    h += `<div class="muted" style="font-size:12px;margin-top:10px">Product of an ad = the product in its Meta ad name (every Trybe ad set is LOKI or Feather). Commission per product = each creator's commission split by where their ad spend went in these dates. Total spend here is Triple Whale's (${usd(tot('sp100'))}); the top of the page uses Trybe's own (${usd(C.sp)}).</div>`;
+  }
+
   if (tab === 'vids') {
-    const SP = T.vids || {}, SR = SP.rows || [];
-    h += `<div class="muted" style="font-size:12.5px;margin-top:12px">Trybe gives video results for one fixed window: ${SP.s ? `${fRange(SP.s, SP.e)}` : 'not pulled'} (the date bar does not change this table). Profit per video = revenue − product, shipping, fees − spend − commission.</div>`;
+    const SP = T.vids || {}, SR = modelRows(SP.rows || []);
+    h += `<div class="muted" style="font-size:12.5px;margin-top:12px">Trybe gives video results for one fixed window: ${SP.s ? `${fRange(SP.s, SP.e)}` : 'not pulled'} (the date bar does not change this table). Revenue = Triple Whale ${MODELS[S.model]} on each video's ads. Profit per video = revenue − product, shipping, fees − spend − commission.</div>`;
     if (SR.length) h += `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Video</th><th class="l">Creator</th><th class="l">Product</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th>Purchases</th><th>Commission</th><th>Profit</th><th>Thumbstop</th><th class="l">Hook · style</th><th>In ads</th></tr></thead><tbody>
       ${SR.slice(0, S.tySubAll ? 300 : 25).map(r => { const rr = r.sp ? r.pv / r.sp : null, tg = r.tg || {}, pr = r.pv - Math.round(r.pv * COGS) - (r.pu || 0) * FUL - r.sp - (r.ce || 0);
         return `<tr><td class="l"><span class="ty-who">${vid(r.t, 54)}<small class="muted">${esc(r.t || '')}</small></span></td><td class="l">${r.ci >= 0 ? who(r.ci) : esc(r.c || '')}</td><td class="l">${TY_P[r.pk] || ''}</td><td>${usd(r.sp)}</td><td>${usd(r.pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${int(r.pu)}</td><td>${usd(r.ce)}</td><td class="${pr >= 0 ? 'up' : 'down'}">${usd(pr)}</td>
@@ -2161,7 +2220,7 @@ function pTrybe() {
 
   if (tab === 'corr') {
     // correlation explorer (Andy 2026-11-18): pick what to group by and what to measure, or put two numbers against each other
-    const SP = T.vids || {}, R0 = (SP.rows || []).filter(r => r.sp > 0 || r.pv > 0);
+    const SP = T.vids || {}, R0 = modelRows(SP.rows || []).filter(r => r.sp > 0 || r.pv > 0);
     const prog = r => (r.prog || 'No program').replace(/NorthernKnife |Northernknife /g, '').replace('[PAUSED] ', 'Paused ');
     const tidy = v => v ? String(v).replace(/_/g, ' ') : 'Not tagged';
     const DIMS = [['pk','Product', r => [TY_P[r.pk] || 'Not tagged']], ['h','Hook', r => [tidy((r.tg || {}).h)]], ['s','Style', r => [tidy((r.tg || {}).s)]],
