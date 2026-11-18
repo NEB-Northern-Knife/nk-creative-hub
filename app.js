@@ -1990,7 +1990,7 @@ function pTrybe() {
     kp('Creator commission', usd(C.e), dl(C.e, Pv.e, true) + was(`${usd(Pv.e)} ${CL}`), '', 'Commission + retainers + bonuses Trybe books for the creators', 1), 140).replace('class="grid kpis"', 'class="grid kpis ty-six"');
 
   // ---------- tabs
-  const TABS = [['profit','Profit'],['content','Videos'],['people','Creators: sign-ups & retention'],['board','Leaderboard'],['vids','Top videos']], tab = S.tyTab || 'profit';
+  const TABS = [['profit','Profit'],['content','Videos'],['people','Creators: sign-ups & retention'],['board','Leaderboard'],['vids','Top videos'],['corr','Correlations']], tab = S.tyTab || 'profit';
   h += `<div class="htabs" style="margin-top:22px" id="tyTabs">${TABS.map(([v, l]) => `<button data-v="${v}" class="${tab === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const perTabs = `<div style="display:flex;gap:8px;align-items:center;margin-top:12px"><span class="muted" style="font-size:11px">Per</span><div class="tabs-mini" id="tyG">${[['day','Day'],['week','Week'],['month','Month']].map(([v, l]) => `<button data-v="${v}" class="${g === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>`;
   const after = [];
@@ -1998,6 +1998,28 @@ function pTrybe() {
     plugins:{legend:{labels:{color:'#cfcfcf', boxWidth:10}}, tooltip:{callbacks:isMoney ? {label:c => c.dataset.label + ': ' + (c.raw < 0 ? '-$' : '$') + Math.abs(Math.round(c.raw)).toLocaleString('en-US')} : {}}},
     scales:{x:{stacked:stack, ticks:{color:'#9a9a9a', maxRotation:0, autoSkip:true}, grid:{display:false}}, y:{stacked:stack, ticks:{color:'#9a9a9a', callback:v => isMoney ? (v < 0 ? '-$' : '$') + (Math.abs(v) >= 1000 ? (Math.abs(v) / 1000).toFixed(Math.abs(v) >= 1e4 || v % 1000 === 0 ? 0 : 1) + 'k' : Math.abs(v)) : v}, grid:{color:'#ffffff12'}}}});
   const mk = (id, cfg) => after.push(() => { const el = $('#' + id); if (el) charts[id] = new Chart(el, cfg); });
+  // ---------- pictures: creator photo (TikTok, else initials), video = poster frame from Trybe + the ad's MP4 from Triple Whale when it ran on Meta
+  const TYV = {}; D.ads.forEach(ad => { const m = /trybe=?([0-9a-f]{8})/i.exec(ad.n); if (m && (ad.v || ad.th) && !TYV[m[1]]) TYV[m[1]] = {v:ad.v, th:ad.th}; });
+  const TH = T.th || {};
+  const avatar = (ci, sz = 34) => { const c = CR[ci] || {}, ini = (c.n || '?').split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase();
+    return c.av ? `<img class="ty-av" src="${c.av}" alt="" style="width:${sz}px;height:${sz}px">` : `<span class="ty-av ini" style="width:${sz}px;height:${sz}px">${esc(ini)}</span>`; };
+  const who = (ci, extra = '') => { const c = CR[ci] || {}; return `<span class="ty-who">${avatar(ci)}<span><b>${esc(c.n || '')}</b>${c.tt ? `<small class="muted">@${esc(c.tt)}</small>` : c.ig ? `<small class="muted">@${esc(c.ig)}</small>` : ''}${extra}</span></span>`; };
+  const vid = (t, w = 54) => { if (!t) return ''; const m = TYV[t] || {}, poster = TH[t] || m.th; if (!poster && !m.v) return `<span class="muted">${esc(t)}</span>`;
+    return `<span class="ty-vid${m.v ? ' play' : ''}" data-src="${m.v ? esc(m.v) : ''}" data-poster="${esc(poster || '')}" data-t="${esc(t)}" style="width:${w}px;height:${Math.round(w * 16 / 9)}px">
+      ${poster ? `<img src="${esc(poster)}" loading="lazy" alt="">` : ''}${m.v ? '<video muted loop playsinline preload="none"></video><i>▶</i>' : ''}</span>`; };
+  after.push(() => {
+    document.querySelectorAll('.ty-vid').forEach(el => {
+      const v = el.querySelector('video');
+      if (v) { el.onmouseenter = () => { if (!v.src) v.src = el.dataset.src; v.play().then(() => el.classList.add('on')).catch(() => {}); }; el.onmouseleave = () => { v.pause(); el.classList.remove('on'); }; }
+      el.onclick = () => { let bx = $('#tyBox'); if (!bx) { bx = document.createElement('div'); bx.id = 'tyBox'; document.body.appendChild(bx); bx.onclick = e => { if (e.target === bx) { bx.innerHTML = ''; bx.classList.remove('open'); } }; }
+        bx.innerHTML = `<div class="ty-box-in">${el.dataset.src ? `<video src="${el.dataset.src}" poster="${el.dataset.poster}" controls autoplay playsinline></video>` : `<img src="${el.dataset.poster}" alt=""><div class="muted" style="margin-top:6px;font-size:12px">This video never ran on Meta, so only its first frame is here. Watch it in Trybe.</div>`}
+          <div class="ty-box-cap">Trybe ID ${esc(el.dataset.t)} <button class="btn ghost sm" id="tyBoxX">Close</button></div></div>`;
+        bx.classList.add('open'); $('#tyBoxX').onclick = () => { bx.innerHTML = ''; bx.classList.remove('open'); }; };
+    });
+  });
+  // each creator's best video (most spend in Trybe's video window), else their latest one
+  const bestVid = {}; for (const r of (T.vids || {}).rows || []) if (r.ci >= 0 && (!bestVid[r.ci] || r.sp > bestVid[r.ci].sp)) bestVid[r.ci] = {t:r.t, sp:r.sp};
+  for (const s of SUBS) if (s[1] >= 0 && !bestVid[s[1]] && s[6]) bestVid[s[1]] = {t:s[6], sp:-1, at:s[0]};
 
   if (tab === 'profit') {
     const BP = bk.map(kk => pl(...clipB(kk)));
@@ -2083,13 +2105,13 @@ function pTrybe() {
     for (const d in T.cday) if (d >= a && d <= b) for (const r of T.cday[d]) { const x = add(r[0]); x.e += r[1]; x.g += r[3]; x.sp += r[7]; x.pu += r[8]; x.pv += r[9]; }
     for (const s of SUBS) if (s[0] >= a && s[0] <= b && s[1] >= 0) add(s[1]).v++;
     for (const s of T.samples || []) if (s[0] >= a && s[0] <= b) add(s[1]).smp += COST[s[2]] || 0;
-    const rows = Object.entries(by).map(([i, x]) => ({c:CR[i] || {}, ...x, pr:x.pv - Math.round(x.pv * COGS) - x.pu * FUL - x.sp - x.e - x.smp}))
+    const rows = Object.entries(by).map(([i, x]) => ({ci:+i, c:CR[i] || {}, ...x, pr:x.pv - Math.round(x.pv * COGS) - x.pu * FUL - x.sp - x.e - x.smp}))
       .sort((p, q) => (S.tySort === 'profit' ? q.pr - p.pr : 0) || q.sp - p.sp || q.v - p.v || q.e - p.e);
     const list = S.tyAll ? rows : rows.slice(0, 25);
     h += `<div style="display:flex;gap:8px;align-items:center;margin-top:12px"><span class="muted" style="font-size:11px">Sort by</span><div class="tabs-mini" id="tySort">${[['spend','Ad spend'],['profit','Profit']].map(([v, l]) => `<button data-v="${v}" class="${(S.tySort || 'spend') === v ? 'on' : ''}">${l}</button>`).join('')}</div>
       <span class="muted" style="font-size:12px">${rows.length} creators with videos, sales or a free product in these dates</span></div>
-      <div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Creator</th><th>Joined</th><th>Videos</th><th>Ad spend</th><th>Revenue</th><th>ROAS</th><th>Trybe GMV</th><th>Commission</th><th>Free product</th><th>Profit</th></tr></thead><tbody>
-      ${list.map(x => { const rr = x.sp ? x.pv / x.sp : null; return `<tr><td class="l">${esc(x.c.n || '')}${x.c.so ? ' <span class="pill bad" title="Owes a video for a free product">owes video</span>' : ''}</td><td>${x.c.j ? fmtD(x.c.j) : ''}</td><td>${int(x.v)}</td><td>${usd(x.sp)}</td><td>${usd(x.pv)}</td>
+      <div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Creator</th><th>Best video</th><th>Joined</th><th>Videos</th><th>Ad spend</th><th>Revenue</th><th>ROAS</th><th>Trybe GMV</th><th>Commission</th><th>Free product</th><th>Profit</th></tr></thead><tbody>
+      ${list.map(x => { const rr = x.sp ? x.pv / x.sp : null; return `<tr><td class="l">${who(x.ci, x.c.so ? ' <span class="pill bad" title="Owes a video for a free product">owes video</span>' : '')}</td><td>${bestVid[x.ci] ? vid(bestVid[x.ci].t, 40) : ''}</td><td>${x.c.j ? fmtD(x.c.j) : ''}</td><td>${int(x.v)}</td><td>${usd(x.sp)}</td><td>${usd(x.pv)}</td>
         <td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${usd(x.g)}</td><td>${usd(x.e)}</td><td>${x.smp ? usd(x.smp) : ''}</td><td class="${x.pr >= 0 ? 'up' : 'down'}">${usd(x.pr)}</td></tr>`; }).join('')}</tbody></table></div>
       ${rows.length > 25 ? `<button class="btn ghost sm" id="tyAll" style="margin-top:10px">${S.tyAll ? 'Show top 25' : 'Show all ' + rows.length}</button>` : ''}`;
   }
@@ -2097,11 +2119,94 @@ function pTrybe() {
   if (tab === 'vids') {
     const SP = T.vids || {}, SR = SP.rows || [];
     h += `<div class="muted" style="font-size:12.5px;margin-top:12px">Trybe gives video results for one fixed window: ${SP.s ? `${fRange(SP.s, SP.e)}` : 'not pulled'} (the date bar does not change this table). Profit per video = revenue − product, shipping, fees − spend − commission.</div>`;
-    if (SR.length) h += `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Video</th><th class="l">Creator</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th>Purchases</th><th>Commission</th><th>Profit</th><th>Thumbstop</th><th class="l">Hook · style</th><th>In ads</th></tr></thead><tbody>
+    if (SR.length) h += `<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr><th class="l">Video</th><th class="l">Creator</th><th class="l">Product</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th>Purchases</th><th>Commission</th><th>Profit</th><th>Thumbstop</th><th class="l">Hook · style</th><th>In ads</th></tr></thead><tbody>
       ${SR.slice(0, S.tySubAll ? 300 : 25).map(r => { const rr = r.sp ? r.pv / r.sp : null, tg = r.tg || {}, pr = r.pv - Math.round(r.pv * COGS) - (r.pu || 0) * FUL - r.sp - (r.ce || 0);
-        return `<tr><td class="l">${esc(r.t || '')}</td><td class="l">${esc(r.c || '')}</td><td>${usd(r.sp)}</td><td>${usd(r.pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${int(r.pu)}</td><td>${usd(r.ce)}</td><td class="${pr >= 0 ? 'up' : 'down'}">${usd(pr)}</td>
+        return `<tr><td class="l"><span class="ty-who">${vid(r.t, 54)}<small class="muted">${esc(r.t || '')}</small></span></td><td class="l">${r.ci >= 0 ? who(r.ci) : esc(r.c || '')}</td><td class="l">${TY_P[r.pk] || ''}</td><td>${usd(r.sp)}</td><td>${usd(r.pv)}</td><td class="${rr >= 2 ? 'up' : rr ? 'down' : ''}">${x2(rr)}</td><td>${int(r.pu)}</td><td>${usd(r.ce)}</td><td class="${pr >= 0 ? 'up' : 'down'}">${usd(pr)}</td>
         <td>${r.ts != null ? pct(r.ts > 1 ? r.ts / 100 : r.ts, 0) : '–'}</td><td class="l muted">${esc([tg.h, tg.s].filter(Boolean).join(' · ').replace(/_/g, ' '))}</td><td class="muted">${r.fd ? fmtD(r.fd) + ' – ' + fmtD(r.ld) : ''}</td></tr>`; }).join('')}</tbody></table></div>
       ${SR.length > 25 ? `<button class="btn ghost sm" id="tySubAll" style="margin-top:10px">${S.tySubAll ? 'Show top 25' : 'Show all ' + SR.length}</button>` : ''}`;
+  }
+
+  if (tab === 'corr') {
+    // correlation explorer (Andy 2026-11-18): pick what to group by and what to measure, or put two numbers against each other
+    const SP = T.vids || {}, R0 = (SP.rows || []).filter(r => r.sp > 0 || r.pv > 0);
+    const prog = r => (r.prog || 'No program').replace(/NorthernKnife |Northernknife /g, '').replace('[PAUSED] ', 'Paused ');
+    const tidy = v => v ? String(v).replace(/_/g, ' ') : 'Not tagged';
+    const DIMS = [['pk','Product', r => [TY_P[r.pk] || 'Not tagged']], ['h','Hook', r => [tidy((r.tg || {}).h)]], ['s','Style', r => [tidy((r.tg || {}).s)]],
+      ['p','Pacing', r => [tidy((r.tg || {}).p)]], ['a','Audio', r => [tidy((r.tg || {}).a)]], ['c','Call to action', r => [tidy((r.tg || {}).c)]], ['f','Funnel', r => [tidy((r.tg || {}).f)]],
+      ['ang','Angle', r => (r.ang && r.ang.length ? r.ang : ['Not tagged'])], ['cr','Creator', r => [(CR[r.ci] || {}).n || r.c || '?']], ['prog','Program', r => [prog(r)]],
+      ['lang','Language', r => [r.lang ? r.lang.toUpperCase() : 'No transcript']], ['mo','Month made', r => [r.at ? MON(r.at.slice(0, 7)) + ' ' + r.at.slice(2, 4) : '?']]];
+    const prof = r => r.pv - Math.round(r.pv * COGS) - (r.pu || 0) * FUL - r.sp - (r.ce || 0);
+    // per group sums, ratios from the sums (never an average of ratios)
+    const sum = rows => { const o = {n:rows.length, sp:0, pv:0, pu:0, g:0, ce:0, im:0, lc:0, tsw:0, aww:0, pr:0};
+      for (const r of rows) { o.sp += r.sp || 0; o.pv += r.pv || 0; o.pu += r.pu || 0; o.g += r.g || 0; o.ce += r.ce || 0; o.im += r.im || 0; o.lc += r.lc || 0; o.tsw += (r.ts || 0) * (r.im || 0); o.aww += (r.aw || 0) * (r.im || 0); o.pr += prof(r); } return o; };
+    const MEAS = [['pr','Profit', o => o.pr / 100, '$', 1], ['pv','Revenue', o => o.pv / 100, '$', 1], ['sp','Ad spend', o => o.sp / 100, '$', 1], ['roas','ROAS', o => o.sp ? o.pv / o.sp : null, 'x'],
+      ['ppv','Profit per video', o => o.n ? o.pr / o.n / 100 : null, '$'], ['rpv','Revenue per video', o => o.n ? o.pv / o.n / 100 : null, '$'], ['pu','Purchases', o => o.pu, '', 1],
+      ['cpp','Cost per purchase', o => o.pu ? o.sp / o.pu / 100 : null, '$'], ['g','Trybe GMV', o => o.g / 100, '$', 1], ['ce','Commission', o => o.ce / 100, '$', 1],
+      ['ts','Thumbstop', o => o.im ? o.tsw / o.im : null, '%'], ['aw','Avg % watched', o => o.im ? o.aww / o.im : null, '%'], ['ctr','Link CTR', o => o.im ? o.lc / o.im * 100 : null, '%'],
+      ['cpm','CPM', o => o.im ? o.sp / o.im * 10 : null, '$'], ['n','Videos', o => o.n, '', 1]];
+    const NUM = MEAS.filter(m => !['ppv','rpv','n'].includes(m[0]));
+    const fmtM = (m, v) => v == null || !isFinite(v) ? '–' : m[3] === '$' ? (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-US', {maximumFractionDigits:Math.abs(v) < 100 ? 2 : 0}) : m[3] === 'x' ? v.toFixed(2) : m[3] === '%' ? v.toFixed(1) + '%' : Math.round(v).toLocaleString('en-US');
+    const Q = S.tyq || (S.tyq = {mode:'bar', x:'pk', y:'pr', split:'', sx:'ts', sy:'roas', col:'pk', min:0});
+    const rows = R0.filter(r => r.sp >= Q.min * 100), dim = id => DIMS.find(d => d[0] === id), mea = id => MEAS.find(m => m[0] === id);
+    const sel = (id, cur, opts, lab) => `<label class="ty-sel"><span>${lab}</span><select id="${id}">${opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></label>`;
+    const PAL = ['#c7b48b', '#52b788', '#6c8ebf', '#e0605a', '#d9a441', '#8f74d6', '#4fa37a', '#e08a3c', '#7a7a84'];
+    h += `<div class="card ty-q" style="margin-top:12px;padding:12px 14px">
+      <div class="tabs-mini" id="tyQm">${[['bar','Compare groups'],['sc','Two numbers (scatter)']].map(([v, l]) => `<button data-v="${v}" class="${Q.mode === v ? 'on' : ''}">${l}</button>`).join('')}</div>
+      ${Q.mode === 'bar' ? sel('tyQx', Q.x, DIMS.map(d => [d[0], d[1]]), 'Group by') + sel('tyQy', Q.y, MEAS.map(m => [m[0], m[1]]), 'Measure') + sel('tyQs', Q.split, [['', 'Nothing'], ...DIMS.filter(d => d[0] !== Q.x).map(d => [d[0], d[1]])], 'Split by')
+        : sel('tyQsx', Q.sx, NUM.map(m => [m[0], m[1]]), 'Across') + sel('tyQsy', Q.sy, NUM.map(m => [m[0], m[1]]), 'Up') + sel('tyQc', Q.col, DIMS.filter(d => d[0] !== 'cr').map(d => [d[0], d[1]]), 'Colour by')}
+      ${sel('tyQmin', String(Q.min), [['0','Every video'],['50','Videos with $50+ spend'],['200','$200+ spend'],['500','$500+ spend']], 'Videos')}
+      <span class="muted" style="font-size:12px">${rows.length} videos · Trybe ad numbers ${SP.s ? fRange(SP.s, SP.e) : ''} (the date bar does not change this)</span></div>`;
+    if (Q.mode === 'bar') {
+      const D1 = dim(Q.x), M = mea(Q.y), D2 = Q.split ? dim(Q.split) : null;
+      const G = new Map(); for (const r of rows) for (const k1 of D1[2](r)) { const x = G.get(k1) || []; x.push(r); G.set(k1, x); }
+      const groups = [...G.entries()].map(([k1, rs]) => ({k:k1, rs, o:sum(rs)})).map(g => ({...g, v:M[2](g.o)})).sort((p, q) => (q.v ?? -1e18) - (p.v ?? -1e18)).slice(0, 25);
+      const lab = groups.map(g => g.k);
+      let ds;
+      if (D2) { const tot = new Map(); for (const r of rows) for (const k2 of D2[2](r)) tot.set(k2, (tot.get(k2) || 0) + (r.sp || 0));
+        const top = [...tot.entries()].sort((p, q) => q[1] - p[1]).slice(0, 8).map(x => x[0]);
+        const keys = [...top, ...(tot.size > 8 ? ['Other'] : [])];
+        ds = keys.map((k2, i) => ({label:k2, backgroundColor:PAL[i % PAL.length], borderRadius:3,
+          data:groups.map(g => { const rs = g.rs.filter(r => { const v = D2[2](r); return k2 === 'Other' ? !v.some(x => top.includes(x)) : v.includes(k2); }); return rs.length ? M[2](sum(rs)) : null; })}));
+      } else ds = [{label:M[1], data:groups.map(g => g.v), backgroundColor:groups.map(g => M[0] === 'pr' || M[0] === 'ppv' ? (g.v >= 0 ? '#52b788' : '#e0605a') : '#c7b48b'), borderRadius:4}];
+      const stack = !!D2 && !!M[4];
+      h += `<div style="margin-top:12px">${chart('tyQ1', `${M[1]} by ${D1[1].toLowerCase()}${D2 ? `, split by ${D2[1].toLowerCase()}` : ''}`, `${M[4] ? 'Total' : 'Worked out from the totals of each group'}; top ${groups.length} groups`, Math.max(280, Math.min(560, groups.length * 26 + 80)))}</div>`;
+      mk('tyQ1', {type:'bar', data:{labels:lab, datasets:ds}, options:{...opt(stack, M[3] === '$'), indexAxis:'y', plugins:{legend:{display:!!D2, labels:{color:'#cfcfcf', boxWidth:10}},
+        tooltip:{callbacks:{label:c => `${c.dataset.label}: ${fmtM(M, c.raw)}`, afterLabel:c => D2 ? '' : `${groups[c.dataIndex].o.n} videos · ${fmtM(mea('sp'), groups[c.dataIndex].o.sp / 100)} spend`}}},
+        scales:{x:{stacked:stack, ticks:{color:'#9a9a9a', callback:v => fmtM(M, v)}, grid:{color:'#ffffff12'}}, y:{stacked:stack, ticks:{color:'#cfcfcf', autoSkip:false}, grid:{display:false}}}}});
+      const best = groups.filter(g => g.o.n >= 2)[0], worst = groups.filter(g => g.o.n >= 2).slice(-1)[0];
+      if (best && worst && best !== worst) h += `<div class="ty-insight">Highest ${M[1].toLowerCase()}: <b>${esc(best.k)}</b> ${fmtM(M, best.v)} (${best.o.n} videos). Lowest: <b>${esc(worst.k)}</b> ${fmtM(M, worst.v)} (${worst.o.n} videos). Groups with 1 video are left out of this line: one video proves nothing.</div>`;
+      h += `<div class="tbl-wrap" style="margin-top:12px"><table><thead><tr><th class="l">${D1[1]}</th><th>Videos</th><th>Spend</th><th>Revenue</th><th>ROAS</th><th>Profit</th><th>Profit / video</th><th>Purchases</th><th>Thumbstop</th><th>Avg watched</th><th>CTR</th><th class="l">Examples</th></tr></thead><tbody>
+        ${groups.map(g => { const o = g.o, ex = [...g.rs].sort((p, q) => q.sp - p.sp).slice(0, 3); return `<tr><td class="l"><b>${esc(g.k)}</b></td><td>${o.n}</td><td>${usd(o.sp)}</td><td>${usd(o.pv)}</td><td class="${o.sp && o.pv / o.sp >= 2 ? 'up' : o.sp ? 'down' : ''}">${x2(o.sp ? o.pv / o.sp : null)}</td>
+          <td class="${o.pr >= 0 ? 'up' : 'down'}">${usd(o.pr)}</td><td>${usd(o.n ? o.pr / o.n : 0)}</td><td>${int(o.pu)}</td><td>${fmtM(mea('ts'), mea('ts')[2](o))}</td><td>${fmtM(mea('aw'), mea('aw')[2](o))}</td><td>${fmtM(mea('ctr'), mea('ctr')[2](o))}</td>
+          <td class="l"><span style="display:flex;gap:4px">${ex.map(r => vid(r.t, 30)).join('')}</span></td></tr>`; }).join('')}</tbody></table></div>`;
+    } else {
+      const MX = mea(Q.sx), MY = mea(Q.sy), DC = dim(Q.col);
+      const pts = rows.map(r => { const o = sum([r]); return {r, x:MX[2](o), y:MY[2](o), k:DC[2](r)[0]}; }).filter(p => p.x != null && p.y != null && isFinite(p.x) && isFinite(p.y));
+      const n = pts.length, mx = pts.reduce((a2, p) => a2 + p.x, 0) / (n || 1), my = pts.reduce((a2, p) => a2 + p.y, 0) / (n || 1);
+      let sxy = 0, sxx = 0, syy = 0; for (const p of pts) { sxy += (p.x - mx) * (p.y - my); sxx += (p.x - mx) ** 2; syy += (p.y - my) ** 2; }
+      const rr = sxx && syy ? sxy / Math.sqrt(sxx * syy) : null, slope = sxx ? sxy / sxx : 0;
+      const word = rr == null ? 'no answer' : Math.abs(rr) < .1 ? 'no link' : Math.abs(rr) < .3 ? 'a weak link' : Math.abs(rr) < .5 ? 'a moderate link' : 'a strong link';
+      const keys = [...new Set(pts.map(p => p.k))].sort((p, q) => pts.filter(z => z.k === q).length - pts.filter(z => z.k === p).length);
+      const xs = pts.map(p => p.x), x0 = Math.min(...xs), x1 = Math.max(...xs);
+      h += `<div class="ty-insight" style="margin-top:12px">Correlation between ${MX[1].toLowerCase()} and ${MY[1].toLowerCase()}: <b>r = ${rr == null ? '–' : rr.toFixed(2)}</b>, ${word}${rr != null && Math.abs(rr) >= .1 ? (rr > 0 ? ' (when one goes up, the other tends to go up)' : ' (when one goes up, the other tends to go down)') : ''}. ${n} videos; dot size = spend. A link is not proof of cause.</div>
+        <div style="margin-top:10px">${chart('tyQ2', `${MY[1]} against ${MX[1].toLowerCase()}`, `One dot per video, coloured by ${DC[1].toLowerCase()}; dashed line = trend`, 420)}</div>`;
+      const maxSp = Math.max(1, ...pts.map(p => p.r.sp));
+      mk('tyQ2', {type:'scatter', data:{datasets:[...keys.map((kk, i) => ({label:kk, data:pts.filter(p => p.k === kk).map(p => ({x:p.x, y:p.y, r:p.r})), backgroundColor:PAL[Math.min(i, PAL.length - 1)] + 'cc', borderColor:'#16130b', borderWidth:1,
+        pointRadius:pts.filter(p => p.k === kk).map(p => 3 + 9 * Math.sqrt(p.r.sp / maxSp)), pointHoverRadius:10})),
+        ...(n > 2 ? [{type:'line', label:'Trend', data:[{x:x0, y:my + slope * (x0 - mx)}, {x:x1, y:my + slope * (x1 - mx)}], borderColor:'#ffffff80', borderDash:[6, 5], borderWidth:1.5, pointRadius:0}] : [])]},
+        options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#cfcfcf', boxWidth:10, filter:l => l.text !== 'Trend'}},
+          tooltip:{callbacks:{label:c => { const p = c.raw; if (!p.r) return ''; return `${p.r.t} · ${(CR[p.r.ci] || {}).n || p.r.c}: ${MX[1]} ${fmtM(MX, p.x)}, ${MY[1]} ${fmtM(MY, p.y)}, spend ${usd(p.r.sp)}`; }}}},
+          scales:{x:{type:'linear', title:{display:true, text:MX[1], color:'#9a9a9a'}, ticks:{color:'#9a9a9a', callback:v => fmtM(MX, v)}, grid:{color:'#ffffff12'}}, y:{title:{display:true, text:MY[1], color:'#9a9a9a'}, ticks:{color:'#9a9a9a', callback:v => fmtM(MY, v)}, grid:{color:'#ffffff12'}}}}});
+      // the same pair, one r per group: does the link hold inside each product / hook...
+      const per = keys.map(kk => { const q = pts.filter(p => p.k === kk); if (q.length < 4) return null; const ax = q.reduce((s2, p) => s2 + p.x, 0) / q.length, ay = q.reduce((s2, p) => s2 + p.y, 0) / q.length;
+        let a1 = 0, a2 = 0, a3 = 0; for (const p of q) { a1 += (p.x - ax) * (p.y - ay); a2 += (p.x - ax) ** 2; a3 += (p.y - ay) ** 2; } return a2 && a3 ? [kk, q.length, a1 / Math.sqrt(a2 * a3)] : null; }).filter(Boolean);
+      if (per.length > 1) h += `<div class="muted" style="font-size:12.5px;margin-top:8px">Inside each ${DC[1].toLowerCase()} (4+ videos): ${per.map(([kk, nn, r2]) => `<b>${esc(kk)}</b> r ${r2.toFixed(2)} (${nn})`).join(' · ')}</div>`;
+    }
+    after.push(() => {
+      const set = (id, key, num) => { const el = $('#' + id); if (el) el.onchange = () => { Q[key] = num ? +el.value : el.value; render(); }; };
+      set('tyQx', 'x'); set('tyQy', 'y'); set('tyQs', 'split'); set('tyQsx', 'sx'); set('tyQsy', 'sy'); set('tyQc', 'col'); set('tyQmin', 'min', 1);
+      const md = $('#tyQm'); if (md) md.onclick = ev => { const bt = ev.target.closest('button'); if (bt) { Q.mode = bt.dataset.v; render(); } };
+    });
   }
 
   h += `<div class="note" style="margin-top:22px">Source: Trybe (the creator platform), day by day, pulled with the hub refresh. Revenue and ROAS are what Meta reports on ads that use Trybe videos; Trybe GMV is Trybe's own attribution and overlaps with it. Product cost = US COGS share from Triple Whale; shipping and fees = handling + payment fees per order; free products = every sample approved for a creator at LOKI $22.40, Feather $32, Rolling $35 (product + shipping), dated on the approval of the creator's latest sample. Sign-ups only count creators still on the roster. Owner only.</div>`;
