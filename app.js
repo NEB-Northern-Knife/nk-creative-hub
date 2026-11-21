@@ -1392,6 +1392,7 @@ function pProduction() {
   const inprod = PR.in_production || [], inTot = inprod.reduce((x, r) => x + r.n, 0);
   const byStatus = st => inprod.filter(r => r.status === st).reduce((x, r) => x + r.n, 0);
   const inDE = inprod.filter(r => r.mk === 'DE').reduce((x, r) => x + r.n, 0);
+  const dlv = PR.delivered || [];
   const perEd = {}; for (const r of inprod) { const o = perEd[r.editor || 'Unassigned'] || (perEd[r.editor || 'Unassigned'] = {n:0, de:0}); o.n += r.n; if (r.mk === 'DE') o.de += r.n; }
   const edChips = Object.entries(perEd).sort((x, y) => y[1].n - x[1].n).map(([n, o]) => `<span class="pill" style="margin:2px 4px 2px 0;display:inline-block" title="${o.n - o.de} English + ${o.de} German">${esc(n)} <b>${o.n}</b>${o.de ? ` <span class="muted">(${o.de} 🇩🇪)</span>` : ''}</span>`).join('');
   const label = g === 'month' ? monthsIn(a, b).map(MONL).join(' + ') : `${fmtD(a)} – ${fmtD(b)}`;
@@ -1404,7 +1405,18 @@ function pProduction() {
     ${kp('Statics', int(s.total), delta(sNow.total, sp.total) + (partial ? ' <span class="muted">same days, by ad date</span>' : ''), mix(s))}
     ${kp('Total concepts', int(t.total), delta(tNow.total, tp.total), `<span class="muted">team videos + Trybe + statics · ${pct(share(t, 'Net New'), 0)} net new</span>`)}
     <div class="card kpi" style="grid-column:1/-1"><div class="lbl">Videos in production · editing now, per editor</div><div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><div class="val num">${int(inTot)}</div><span class="delta muted">${inTot - inDE} English · ${inDE} German 🇩🇪${byStatus('Ready for visuals') ? ' · ' + byStatus('Ready for visuals') + ' ready for visuals' : ''}</span></div>
-      <div style="margin-top:8px">${edChips}</div><div class="delta muted" style="margin-top:6px">live from Notion: Evergreen Video (Assigned to Editor) + German Creatives 🇩🇪 board (Edit not yet received)</div></div>
+      <div style="margin-top:8px">${edChips}</div><div class="delta muted" style="margin-top:6px">live from Notion: Evergreen Video (Assigned to Editor) + German Creatives 🇩🇪 board (Edit not yet received)${dlv.length ? ` · <b style="color:var(--text)">${dlv.length}</b> of them already delivered (below)` : ''}</div></div>
+    ${(() => { // Andy 2026-11-21: editor pasted the Frame link, but the video is not in the CREATIVES sheet yet = probably in revision
+      const perD = {}; for (const r of dlv) perD[r.editor] = (perD[r.editor] || 0) + 1;
+      const age = d => d ? Math.max(0, Math.round((new Date(D.today) - new Date(d)) / 864e5)) : null;
+      const old = dlv.filter(r => age(r.d) >= 7).length, de = dlv.filter(r => r.mk === 'DE').length;
+      return `<div class="card kpi" style="grid-column:1/-1"><div class="lbl">Delivered, not in the sheet yet · probably in revision</div>
+        <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap"><div class="val num">${int(dlv.length)}</div><span class="delta muted">${dlv.length - de} English · ${de} German 🇩🇪${old ? ` · <span class="bad">${old} brief${old > 1 ? 's' : ''} dated 7+ days ago</span>` : ''}</span></div>
+        <div style="margin-top:8px">${Object.entries(perD).sort((x, y) => y[1] - x[1]).map(([n, k]) => `<span class="pill" style="margin:2px 4px 2px 0;display:inline-block">${esc(n)} <b>${k}</b></span>`).join('')}</div>
+        ${dlv.length ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:12.5px">See the ${dlv.length} videos</summary><div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th class="l">Creative</th><th class="l">Concept</th><th class="l">Editor</th><th class="l">Status</th><th>Brief date</th><th>Days</th><th></th></tr></thead><tbody>
+          ${dlv.map(r => { const ag = age(r.d); return `<tr><td class="l"><b>${esc(r.id)}</b>${r.mk === 'DE' ? ' 🇩🇪' : ''}</td><td class="l">${esc(r.name)}</td><td class="l">${esc(r.editor)}</td><td class="l">${esc(r.status)}</td><td>${r.d ? fmtD(r.d) : '–'}</td><td class="${ag >= 7 ? 'bad' : ''}">${ag == null ? '–' : ag}</td>
+            <td style="white-space:nowrap">${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener">Frame</a>` : ''}${r.url ? ` · <a href="${esc(r.url)}" target="_blank" rel="noopener">Notion</a>` : ''}</td></tr>`; }).join('')}</tbody></table></div></details>` : ''}
+        <div class="delta muted" style="margin-top:6px">Notion brief has the editor's delivery link, status is not Uploaded on Drive yet, and its Creative ID is not in the CREATIVES sheet${PR.delivered_at ? ' · synced ' + esc(PR.delivered_at.replace('T', ' ')) : ''}</div></div>`; })()}
   </div>
   ${(() => { const tm = D.today.slice(0, 7), lm = addM(tm, -1), lm2 = addM(tm, -2);
     const vm = m => cnt(teamV(PR.videos.filter(v => v.m === m))), ym = m => cnt(trybeV(PR.videos.filter(v => v.m === m))), sm = m => cnt(((PR.statics || []).find(x => x.month === m) || {items:[]}).items);
