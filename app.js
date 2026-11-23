@@ -301,7 +301,7 @@ function board(a, b, clan, mkt = S.market) {
     p.r = {fc:p.sp ? p.fc / p.sp : 0, ta:p.sp ? p.ta / p.sp : 0, pl:p.sp ? p.pl / p.sp : 0};
     p.concepts.sort((x, y) => revOf(y) - revOf(x));
     return p;
-  }).sort((x, y) => y.xp - x.xp);
+  }).sort((x, y) => y.usdRev - x.usdRev || y.xp - x.xp);  // Andy 2026-11-23: rank on revenue (First Click by default), so ROAS counts
   out.forEach((p, i) => p.rank = i + 1);
   memo.set(key, out); return out;
 }
@@ -741,6 +741,7 @@ function pBoard() {
     <div class="side-panel wood"><h3 class="vk">Highlights</h3><ul class="hl-list">${hl.length ? hl.map(t => `<li>${t}</li>`).join('') : '<li>Nothing yet in these dates.</li>'}</ul></div>
   </div></div>
   <div class="side-panel wood" style="margin-top:12px"><h3 class="vk">How XP is scored</h3><div class="rules2">
+    <div class="slot"><b>Rank</b>places go by ${MODELS[S.model]} revenue; XP decides your level and badges</div>
     <div class="slot"><b>1 XP / $100</b>of ${MODELS[S.model]} revenue your ads brought in (USD)</div>
     <div class="slot"><b>+150 per hit</b>a concept with $1,000+ spend that beats the account ${MODELS[S.model]} ROAS</div>
     <div class="slot"><b>+25 per launch</b>a new concept that started spending in these dates</div>
